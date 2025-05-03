@@ -11,7 +11,7 @@ export OMP_NUM_THREADS=4
 export NCCL_TIMEOUT=1200
 
 
-export HF_TOKEN=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
+export HF_TOKEN=
 export WANDB_API_KEY=f02cb01552baf522a9cf61ea54648decbdb3c7e9
 export HF_HOME=cache
 export CUDA_VISIBLE_DEVICES=4,5
