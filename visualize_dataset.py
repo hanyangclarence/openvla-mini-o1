@@ -79,7 +79,7 @@
 # if not render_wandb:
 #     plt.show()
 
-
+from rlbench_data_util.rlbench_dataset_builder import RLBenchO1Dataset
 import tensorflow_datasets as tfds
 builder = tfds.builder("rlbench_o1_dataset", data_dir="/gpfs/ebd/openvla-mini-o1/dataset")
 builder.download_and_prepare()
