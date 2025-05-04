@@ -12,7 +12,7 @@ export NCCL_TIMEOUT=1200
 
 
 export HF_TOKEN=
-export WANDB_API_KEY=f02cb01552baf522a9cf61ea54648decbdb3c7e9
+export WANDB_API_KEY=28b3c634497c0dc6c16767729d4719b1012a94f2
 export HF_HOME=cache
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
@@ -33,7 +33,7 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --vla_path "openvla/openvla-7b" \
-  --data_root_dir data/1.0.0 \
+  --data_root_dir dataset/rl_bench_o1_dataset/1.0.0 \
   --dataset_name rlbencho1 \
   --run_root_dir logs \
   --adapter_tmp_dir lora_logs \
@@ -43,5 +43,5 @@ torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --learning_rate 5e-4 \
   --image_aug False \
   --wandb_project "embodied_o1" \
-  --wandb_entity "szang" \
+  --wandb_entity "mahlerrrr76" \
   --save_steps 1000
