@@ -152,8 +152,8 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                         with open(info_path, 'r') as f:
                             info = json.load(f)
                         
-                        curr_pose = _process_pose_to_state(info['current_pose'])
-                        next_pose = _process_pose_to_state(info['next_pose'])
+                        curr_pose = _process_pose_to_state(info['prev_pose'])
+                        next_pose = _process_pose_to_state(info['current_pose'])
                         
                         sample = {
                             'observation': {
@@ -175,6 +175,9 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                         
                         with open(info_path, 'r') as f:
                             info = json.load(f)
+                        
+                        curr_pose = _process_pose_to_state(info['current_pose'])
+                        next_pose = _process_pose_to_state(info['correct_pose'])
                             
                         sample = {
                             'observation': {
@@ -182,11 +185,13 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                                 'depth_image': depth_path,  # Just store the path
                                 'state': _process_pose_to_state(info['current_pose'])
                             },
-                            'action': _process_pose_to_state(info['correct_pose']),
+                            'action': _get_relative_pose(curr_pose, next_pose),
                             'language_instruction': info['lang_goal'],
                             'language_reason': f"Previous action is unsuccessful. This step failed because {info['failure_reason_gpt']}. To correct this, the robot needs to {info['correction_instruction_gpt']}",
                             'is_perturb':True
                         }
+                    else:
+                        raise ValueError(f"Unknown subdir: {subdir}")
                         
                     if 'expert' in subdir or 'perturb' in subdir:
                         data.append(sample)
