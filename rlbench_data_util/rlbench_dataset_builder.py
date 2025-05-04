@@ -50,7 +50,7 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                         )
                     }),
                     'action': tfds.features.Tensor(
-                        shape=(8,),
+                        shape=(7,),
                         dtype=np.float32,
                         doc='Robot action, qpos or RTX version: consists of [7x joint velocities, '
                             '2x gripper velocities, 1x terminate episode].',
@@ -183,7 +183,7 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                             'observation': {
                                 'image': rgb_path,  # Just store the path
                                 'depth_image': depth_path,  # Just store the path
-                                'state': _process_pose_to_state(info['current_pose'])
+                                'state': curr_pose
                             },
                             'action': _get_relative_pose(curr_pose, next_pose),
                             'language_instruction': info['lang_goal'],
