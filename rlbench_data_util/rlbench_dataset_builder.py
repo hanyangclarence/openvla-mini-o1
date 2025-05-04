@@ -7,6 +7,8 @@ import tensorflow_datasets as tfds
 import tensorflow_hub as hub
 import json
 from tqdm import tqdm
+from scipy.spatial.transform import Rotation as R
+import quaternion
 
 tfds.core.utils.gcs_utils._is_gcs_disabled = True
 os.environ['NO_GCE_CHECK'] = 'true'
@@ -118,6 +120,18 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
             # Concatenate into 8D vector
             state = np.concatenate([pos, ori, [gripper]], dtype=np.float32)
             return state
+        
+        def _get_relative_pose(pose1, pose2):
+            trans_1, trans_2 = pose1[:3], pose2[:3]
+            trans_diff = trans_2 - trans_1
+            rot_1, rot_2 = pose1[3:7], pose2[3:7]
+            rot_1 = quaternion.from_float_array(rot_1)
+            rot_2 = quaternion.from_float_array(rot_2)
+            rot_diff = rot_2 * rot_1.inverse()
+            rot_mat = R.from_quat(quaternion.as_float_array(rot_diff))
+            euler_diff = rot_mat.as_euler('xyz', degrees=False)
+            
+            return np.concatenate([trans_diff, euler_diff, pose2[7:8]], dtype=np.float32)
     
         def _parse_example(episode_path):
             nonlocal error_count
@@ -137,14 +151,17 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                         
                         with open(info_path, 'r') as f:
                             info = json.load(f)
-                            
+                        
+                        curr_pose = _process_pose_to_state(info['current_pose'])
+                        next_pose = _process_pose_to_state(info['next_pose'])
+                        
                         sample = {
                             'observation': {
                                 'image': rgb_path,  # Just store the path
                                 'depth_image': depth_path,  # Just store the path
-                                'state': _process_pose_to_state(info['prev_pose'])
+                                'state': curr_pose
                             },
-                            'action': _process_pose_to_state(info['current_pose']),
+                            'action': _get_relative_pose(curr_pose, next_pose),
                             'language_instruction': info['lang_goal'],
                             'language_reason': f"Previous action is successful. To achieve the goal, the robot should now {info['subgoal'][11:]}",
                             'is_perturb':False
