@@ -167,8 +167,8 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                         with open(info_path, 'r') as f:
                             info = json.load(f)
                         
-                        failure_reason = info['failure_reason']
-                        currection_instruction = info['correction_instruction']
+                        failure_reason = info['failure_reason_gpt']
+                        currection_instruction = info['correction_instruction_gpt']
                         
                         sample = {
                             'observation': {
