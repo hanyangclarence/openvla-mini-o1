@@ -849,9 +849,6 @@ def rlbencho1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     action_gripper = invert_gripper_actions(gripper_control) # +1 = open, 0 = close
 
     action_delta_xyz = eef_position_control - eef_position_proprio # (T, 3)
-
-    # q2 = tf.roll(eef_orientation_control, shift=-1, axis=-1)
-    # q1 = tf.roll(eef_orientation_proprio, shift=-1, axis=-1)
     
     # rlbench and tfgraphics are all in format xyzw, so we don't need further conversion
     delta_eef_orientation_proprio = tfgt.quaternion.multiply(
@@ -860,21 +857,10 @@ def rlbencho1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     delta_eef_orientation_proprio = tfgt.quaternion.normalize(delta_eef_orientation_proprio)
     action_delta_rpy = tfgt.euler.from_quaternion(delta_eef_orientation_proprio)
     
-    # check for NaN values in action_delta_rpy
-    if tf.reduce_any(tf.math.is_nan(action_delta_rpy)):
-        raise ValueError("NaN values found in action_delta_rpy")
+    # resolve NaN values in action_delta_rpy
+    action_delta_rpy = tf.where(tf.math.is_nan(action_delta_rpy), tf.zeros_like(action_delta_rpy), action_delta_rpy)
 
     trajectory["action"] = tf.concat([action_delta_xyz, action_delta_rpy, action_gripper], axis=-1) # (T-1, [3,3,1]) caution: last action is meaningless!
-    # trajectory['traj_metadata']['environment_config'] = trajectory["language_instruction"]
-    
-    # for key in trajectory.keys():
-    #     if key in ["traj_metadata", "action"]:
-    #         continue
-    #     elif key in ["observation"]: 
-    #         for key2 in trajectory[key]:
-    #             trajectory[key][key2] = trajectory[key][key2][:-1]
-    #     else:
-    #         trajectory[key] = trajectory[key][:-1]
             
     return trajectory
 
