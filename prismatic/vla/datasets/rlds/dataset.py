@@ -172,7 +172,7 @@ def make_dataset_from_rlds(
             )
 
         # add timestep info
-        new_obs["timestep"] = tf.range(traj_len)
+        new_obs["timestep"] = tf.range(traj_len)  # TODO: This is not correct, since the rlbencho1 data is not sequential
 
         # extracts `language_key` into the "task" dict
         task = {}
