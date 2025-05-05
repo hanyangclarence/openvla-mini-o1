@@ -859,8 +859,9 @@ def rlbencho1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     )
     action_delta_rpy = tfgt.euler.from_quaternion(delta_eef_orientation_proprio)
     
-    if tf.reduced_any(tf.math.is_nan(action_delta_rpy)):
-        raise ValueError("NaN in action_delta_rpy")
+    # check for NaN values in action_delta_rpy
+    if tf.reduce_any(tf.math.is_nan(action_delta_rpy)):
+        raise ValueError("NaN values found in action_delta_rpy")
 
     trajectory["action"] = tf.concat([action_delta_xyz, action_delta_rpy, action_gripper], axis=-1) # (T-1, [3,3,1]) caution: last action is meaningless!
     # trajectory['traj_metadata']['environment_config'] = trajectory["language_instruction"]
