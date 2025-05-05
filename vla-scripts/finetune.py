@@ -49,7 +49,7 @@ from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
 
 # Sane Defaults
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
+IGNORE_INDEX = -100
 
 # # === Utilities ===
 # # fmt: off
@@ -242,6 +242,7 @@ def finetune(cfg: FinetuneConfig) -> None:
     # Deque to store recent train metrics (used for computing smoothened metrics for gradient accumulation)
     recent_losses = deque(maxlen=cfg.grad_accumulation_steps)
     recent_action_accuracies = deque(maxlen=cfg.grad_accumulation_steps)
+    recent_reasoning_accuracies = deque(maxlen=cfg.grad_accumulation_steps)
     recent_l1_losses = deque(maxlen=cfg.grad_accumulation_steps)
 
     # Train!
@@ -269,10 +270,15 @@ def finetune(cfg: FinetuneConfig) -> None:
             action_preds = action_logits.argmax(dim=2)
             action_gt = batch["labels"][:, 1:].to(action_preds.device)
             mask = action_gt > action_tokenizer.action_token_begin_idx
+            reasoning_mask = (action_gt != IGNORE_INDEX) & torch.logical_not(mask)
 
             # Compute Accuracy
             correct_preds = (action_preds == action_gt) & mask
             action_accuracy = correct_preds.sum().float() / mask.sum().float()
+            
+            # Compute Reasoning Accuracy
+            correct_reasoning_preds = (action_preds == action_gt) & reasoning_mask
+            reasoning_accuracy = correct_reasoning_preds.sum().float() / reasoning_mask.sum().float()
 
             # Compute L1 Loss on Predicted (Continuous) Actions
             continuous_actions_pred = torch.tensor(
@@ -286,6 +292,7 @@ def finetune(cfg: FinetuneConfig) -> None:
             # Store recent train metrics
             recent_losses.append(loss.item())
             recent_action_accuracies.append(action_accuracy.item())
+            recent_reasoning_accuracies.append(reasoning_accuracy.item())
             recent_l1_losses.append(action_l1_loss.item())
 
             # Compute gradient step index
@@ -296,6 +303,7 @@ def finetune(cfg: FinetuneConfig) -> None:
             #   =>> Otherwise, equal to the average of metrics observed over micro-batches used for gradient accumulation
             smoothened_loss = sum(recent_losses) / len(recent_losses)
             smoothened_action_accuracy = sum(recent_action_accuracies) / len(recent_action_accuracies)
+            smoothened_reasoning_accuracy = sum(recent_reasoning_accuracies) / len(recent_reasoning_accuracies)
             smoothened_l1_loss = sum(recent_l1_losses) / len(recent_l1_losses)
 
             # Push Metrics to W&B (every 10 gradient steps)
@@ -304,6 +312,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                     {
                         "train_loss": smoothened_loss,
                         "action_accuracy": smoothened_action_accuracy,
+                        "reasoning_accuracy": smoothened_reasoning_accuracy,
                         "l1_loss": smoothened_l1_loss,
                     },
                     step=gradient_step_idx,
