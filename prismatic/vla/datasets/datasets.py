@@ -82,6 +82,8 @@ class RLDSBatchTransform:
         
         full_target_tokens = self.base_tokenizer(full_target, add_special_tokens=True)["input_ids"]
         num_answer_tokens = len(full_target_tokens)
+        if full_target_tokens[0] == self.base_tokenizer.bos_token_id:
+            num_answer_tokens -= 1
 
         # Construct Chat-based Prompt
         prompt_builder = self.prompt_builder_fn("openvla")

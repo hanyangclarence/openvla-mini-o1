@@ -137,6 +137,14 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                         
                         with open(info_path, 'r') as f:
                             info = json.load(f)
+                        
+                        subgoal = info['subgoal']
+                        subgoal = subgoal.lower().strip()
+                        if not subgoal.endswith('.'):
+                            subgoal = subgoal + '.'
+                        if subgoal.startswith('the robot'):
+                            subgoal = subgoal[10:]
+                        subgoal = subgoal.strip().capitalize()
                             
                         sample = {
                             'observation': {
@@ -146,7 +154,7 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                             },
                             'action': _process_pose_to_state(info['current_pose']),
                             'language_instruction': info['lang_goal'],
-                            'language_reason': f"To achieve the goal, the robot should now {info['subgoal'][11:]}",
+                            'language_reason': f"ACTION SUCCESS:\nTrue\n\nCURRENT GOAL:\n{subgoal}",
                             'is_perturb':False
                         }
                         
@@ -158,7 +166,10 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                         
                         with open(info_path, 'r') as f:
                             info = json.load(f)
-                            
+                        
+                        failure_reason = info['failure_reason']
+                        currection_instruction = info['correction_instruction']
+                        
                         sample = {
                             'observation': {
                                 'image': rgb_path,  # Just store the path
@@ -167,7 +178,7 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                             },
                             'action': _process_pose_to_state(info['correct_pose']),
                             'language_instruction': info['lang_goal'],
-                            'language_reason': f"This step failed because {info['failure_reason_gpt']}. To correct this, the robot needs to {info['correction_instruction_gpt']}",
+                            'language_reason': f"ACTION SUCCESS:\nFalse\n\nFAILURE REASON:\n{failure_reason}\n\nCORRECTION INSTRUCTION:\n{currection_instruction}",
                             'is_perturb':True
                         }
                         
