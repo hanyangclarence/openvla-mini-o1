@@ -44,7 +44,7 @@ class RLDSBatchTransform:
         """Converts a RLDS batch to the format expected by the OpenVLA collator/models."""
         dataset_name, action = rlds_batch["dataset_name"], rlds_batch["action"]
         lang = rlds_batch["task"]["language_instruction"].decode().lower()
-        reason_lang = rlds_batch["task"]["language_reason"].decode().lower()
+        reason_lang = rlds_batch["task"]["language_reason"].decode()
         
         # either a single or multi image, depending on image_window_size
         if self.image_window_size == 1:
@@ -71,15 +71,17 @@ class RLDSBatchTransform:
             action = action[-self.action_tokenizer.required_future_horizon - 1 :]
 
         tokenized_action = self.action_tokenizer(action)
-        raw_action_tokens = self.base_tokenizer(tokenized_action)["input_ids"]
-
+        full_target = f"{reason_lang}\n\nACTION:\n{tokenized_action}"
+        
         conversation.extend(
             [
                 {"from": "human", "value": f"What action should the robot take to {lang}?"},
-                {"from": "gpt", "value": tokenized_action},
+                {"from": "gpt", "value": full_target},
             ]
         )
-        num_answer_tokens = len(raw_action_tokens)
+        
+        full_target_tokens = self.base_tokenizer(full_target, add_special_tokens=True)["input_ids"]
+        num_answer_tokens = len(full_target_tokens)
 
         # Construct Chat-based Prompt
         prompt_builder = self.prompt_builder_fn("openvla")
