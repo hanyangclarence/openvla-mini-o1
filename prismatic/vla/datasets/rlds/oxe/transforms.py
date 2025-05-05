@@ -857,6 +857,7 @@ def rlbencho1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     delta_eef_orientation_proprio = tfgt.quaternion.multiply(
         eef_orientation_control, tfgt.quaternion.inverse(eef_orientation_proprio)
     )
+    delta_eef_orientation_proprio = tfgt.quaternion.normalize(delta_eef_orientation_proprio)
     action_delta_rpy = tfgt.euler.from_quaternion(delta_eef_orientation_proprio)
     
     # check for NaN values in action_delta_rpy
