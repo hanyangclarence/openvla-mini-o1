@@ -846,26 +846,33 @@ def rlbencho1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     eef_position_proprio, eef_orientation_proprio, gripper_proprio = tf.split(trajectory["observation"]["state"], [3,4,1], axis=1)  # (T,3) (T,4) (T,1)
     eef_position_control, eef_orientation_control, gripper_control = tf.split(trajectory["action"], [3,4,1], axis=1) # (T,3) (T,4) (T,1)
 
-    action_gripper = invert_gripper_actions(gripper_control[:-1]) # +1 = open, 0 = close
+    action_gripper = invert_gripper_actions(gripper_control) # +1 = open, 0 = close
 
-    action_delta_xyz = eef_position_proprio[1:] - eef_position_proprio[:-1] # (T-1, 3)
+    action_delta_xyz = eef_position_control - eef_position_proprio # (T, 3)
 
-    q2 = tf.roll(eef_orientation_proprio[1:], shift=-1, axis=-1)
-    q1 = tf.roll(eef_orientation_proprio[:-1], shift=-1, axis=-1)
-    delta_eef_orientation_proprio = tfgt.quaternion.multiply(q2, tfgt.quaternion.inverse(q1))
+    # q2 = tf.roll(eef_orientation_control, shift=-1, axis=-1)
+    # q1 = tf.roll(eef_orientation_proprio, shift=-1, axis=-1)
+    
+    # rlbench and tfgraphics are all in format xyzw, so we don't need further conversion
+    delta_eef_orientation_proprio = tfgt.quaternion.multiply(
+        eef_orientation_control, tfgt.quaternion.inverse(eef_orientation_proprio)
+    )
     action_delta_rpy = tfgt.euler.from_quaternion(delta_eef_orientation_proprio)
+    
+    if tf.reduced_any(tf.math.is_nan(action_delta_rpy)):
+        raise ValueError("NaN in action_delta_rpy")
 
     trajectory["action"] = tf.concat([action_delta_xyz, action_delta_rpy, action_gripper], axis=-1) # (T-1, [3,3,1]) caution: last action is meaningless!
     # trajectory['traj_metadata']['environment_config'] = trajectory["language_instruction"]
     
-    for key in trajectory.keys():
-        if key in ["traj_metadata", "action"]:
-            continue
-        elif key in ["observation"]: 
-            for key2 in trajectory[key]:
-                trajectory[key][key2] = trajectory[key][key2][:-1]
-        else:
-            trajectory[key] = trajectory[key][:-1]
+    # for key in trajectory.keys():
+    #     if key in ["traj_metadata", "action"]:
+    #         continue
+    #     elif key in ["observation"]: 
+    #         for key2 in trajectory[key]:
+    #             trajectory[key][key2] = trajectory[key][key2][:-1]
+    #     else:
+    #         trajectory[key] = trajectory[key][:-1]
             
     return trajectory
 
