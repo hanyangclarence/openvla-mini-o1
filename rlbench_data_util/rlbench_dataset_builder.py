@@ -124,12 +124,20 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
         def _get_relative_pose(pose1, pose2):
             trans_1, trans_2 = pose1[:3], pose2[:3]
             trans_diff = trans_2 - trans_1
-            rot_1, rot_2 = pose1[3:7], pose2[3:7]
-            rot_1 = quaternion.from_float_array(rot_1)
-            rot_2 = quaternion.from_float_array(rot_2)
+            rot_1, rot_2 = pose1[3:7], pose2[3:7]  # [x, y, z, w]
+            rot_1 = quaternion.from_float_array([rot_1[3], rot_1[0], rot_1[1], rot_1[2]])  # Convert to [w, x, y, z]
+            rot_2 = quaternion.from_float_array([rot_2[3], rot_2[0], rot_2[1], rot_2[2]])
             rot_diff = rot_2 * rot_1.inverse()
-            rot_mat = R.from_quat(quaternion.as_float_array(rot_diff))
+            rot_diff = -rot_diff if rot_diff.w < 0 else rot_diff
+            
+            rot_mat = R.from_quat(quaternion.as_float_array(rot_diff), scalar_first=True)
             euler_diff = rot_mat.as_euler('xyz', degrees=False)
+            
+            # # can recon rot_2 from rot_1 and euler_diff as follows:
+            # rot_diff_recon = R.from_euler('xyz', euler_diff, degrees=False).as_quat()  # [x, y, z, w]
+            # rot_diff_recon = quaternion.from_float_array([rot_diff_recon[3], rot_diff_recon[0], rot_diff_recon[1], rot_diff_recon[2]])  # Convert to [w, x, y, z]
+            # rot_diff_recon = -rot_diff_recon if rot_diff_recon.w < 0 else rot_diff_recon
+            # rot_2_recon = rot_diff_recon * rot_1  # still in [w, x, y, z], need to convert to [x, y, z, w]
             
             return np.concatenate([trans_diff, euler_diff, pose2[7:8]], dtype=np.float32)
     
@@ -163,7 +171,7 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                             },
                             'action': _get_relative_pose(curr_pose, next_pose),
                             'language_instruction': info['lang_goal'],
-                            'language_reason': f"Previous action is successful. To achieve the goal, the robot should now {info['subgoal'][11:]}",
+                            'language_reason': f"To achieve the goal, the robot should now {info['subgoal'][11:]}",
                             'is_perturb':False
                         }
                         
@@ -187,7 +195,7 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
                             },
                             'action': _get_relative_pose(curr_pose, next_pose),
                             'language_instruction': info['lang_goal'],
-                            'language_reason': f"Previous action is unsuccessful. This step failed because {info['failure_reason_gpt']}. To correct this, the robot needs to {info['correction_instruction_gpt']}",
+                            'language_reason': f"This step failed because {info['failure_reason_gpt']}. To correct this, the robot needs to {info['correction_instruction_gpt']}",
                             'is_perturb':True
                         }
                     else:
