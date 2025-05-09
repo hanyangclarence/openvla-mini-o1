@@ -850,7 +850,7 @@ def rlbencho1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
 
     action_delta_xyz = eef_position_control - eef_position_proprio # (T, 3)
     
-    # rlbench and tfgraphics are all in format xyzw, so we don't need further conversion
+    # quaternions in rlbench and tfgraphics are all in format xyzw, so we don't need further conversion
     delta_eef_orientation_proprio = tfgt.quaternion.multiply(
         eef_orientation_control, tfgt.quaternion.inverse(eef_orientation_proprio)
     )
@@ -860,7 +860,7 @@ def rlbencho1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     # resolve NaN values in action_delta_rpy
     action_delta_rpy = tf.where(tf.math.is_nan(action_delta_rpy), tf.zeros_like(action_delta_rpy), action_delta_rpy)
 
-    trajectory["action"] = tf.concat([action_delta_xyz, action_delta_rpy, action_gripper], axis=-1) # (T-1, [3,3,1]) caution: last action is meaningless!
+    trajectory["action"] = tf.concat([action_delta_xyz, action_delta_rpy, action_gripper], axis=-1) # (T, [3,3,1]) caution: last action is meaningless!
             
     return trajectory
 
