@@ -74,8 +74,8 @@ class RLBenchO1Dataset(tfds.core.GeneratorBasedBuilder):
     def _split_generators(self, dl_manager: tfds.download.DownloadManager):
         """Define data splits."""
         return {
-            'train': self._generate_examples(path='/gpfs/ebd/runs_vla_data/train'),
-            'val': self._generate_examples(path='/gpfs/ebd/runs_vla_data/val'),
+            'train': self._generate_examples(path='/gpfs/yanghan/data/runs_vla_data/train'),
+            'val': self._generate_examples(path='/gpfs/yanghan/data/runs_vla_data/val'),
         }
 
     def _generate_examples(self, path) -> Iterator[Tuple[str, Any]]:
