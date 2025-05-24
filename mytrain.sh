@@ -37,7 +37,7 @@ torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --run_root_dir logs \
   --adapter_tmp_dir lora_logs \
   --lora_rank 32 \
-  --batch_size 16 \
+  --batch_size 10 \
   --grad_accumulation_steps 1 \
   --learning_rate 5e-4 \
   --image_aug False \

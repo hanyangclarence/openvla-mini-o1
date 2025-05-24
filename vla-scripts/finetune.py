@@ -399,7 +399,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                 val_l1_losses = []
                 
                 with torch.no_grad():
-                    for val_batch_idx, val_batch in enumerate(dataloader_val):
+                    for val_batch_idx, val_batch in tqdm(enumerate(dataloader_val), desc="Validation"):
                         # Limit validation to a fixed number of batches to speed it up, e.g., 50 batches
                         # Adjust this number based on your validation set size and desired frequency
                         if val_batch_idx >= 100: 
