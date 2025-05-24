@@ -2,13 +2,13 @@
 
 echo "Starting training..."
 
-export NCCL_IB_DISABLE=1
-export NCCL_SOCKET_IFNAME=lo
-export NCCL_DEBUG=INFO
-export NCCL_NVLS_ENABLE=1
-export NCCL_P2P_LEVEL=NVL
-export OMP_NUM_THREADS=4
-export NCCL_TIMEOUT=1200
+# export NCCL_IB_DISABLE=1
+# export NCCL_SOCKET_IFNAME=lo
+# export NCCL_DEBUG=INFO
+# export NCCL_NVLS_ENABLE=1
+# export NCCL_P2P_LEVEL=NVL
+# export OMP_NUM_THREADS=4
+# export NCCL_TIMEOUT=1200
 
 
 export HF_TOKEN=
@@ -43,4 +43,5 @@ torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --image_aug False \
   --wandb_project "embodied_o1" \
   --wandb_entity "mahlerrrr76" \
-  --save_steps 1000
+  --save_steps 500 \
+  --validation_steps 10

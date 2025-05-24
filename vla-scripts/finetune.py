@@ -85,6 +85,7 @@ class FinetuneConfig:
     batch_size: int = 16                                            # Fine-tuning batch size
     max_steps: int = 200_000                                        # Max number of fine-tuning steps
     save_steps: int = 5000                                          # Interval for checkpoint saving
+    validation_steps: int = 1000                                    # Interval for validation
     learning_rate: float = 5e-4                                     # Fine-tuning learning rate
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
     image_aug: bool = True                                          # Whether to train with image augmentations
@@ -218,6 +219,15 @@ def finetune(cfg: FinetuneConfig) -> None:
         shuffle_buffer_size=cfg.shuffle_buffer_size,
         image_aug=cfg.image_aug,
     )
+    vla_dataset_val = RLDSDataset(
+        cfg.data_root_dir,
+        cfg.dataset_name,
+        batch_transform,
+        resize_resolution=tuple(vla.module.config.image_sizes),
+        shuffle_buffer_size=cfg.shuffle_buffer_size,
+        image_aug=False,
+        train=False,
+    )
 
     # [Important] Save Dataset Statistics =>> used to de-normalize actions for inference!
     if distributed_state.is_main_process:
@@ -229,6 +239,13 @@ def finetune(cfg: FinetuneConfig) -> None:
     )
     dataloader = DataLoader(
         vla_dataset,
+        batch_size=cfg.batch_size,
+        sampler=None,
+        collate_fn=collator,
+        num_workers=0,  # Important =>> Set to 0 if using RLDS; TFDS rolls its own parallelism!
+    )
+    dataloader_val = DataLoader(
+        vla_dataset_val,
         batch_size=cfg.batch_size,
         sampler=None,
         collate_fn=collator,
@@ -369,6 +386,111 @@ def finetune(cfg: FinetuneConfig) -> None:
 
                 # Block on Main Process Checkpointing
                 dist.barrier()
+
+            # Test model on validation set
+            if gradient_step_idx > 0 and gradient_step_idx % cfg.validation_steps == 0:
+                if distributed_state.is_main_process:
+                    print(f"Running validation for Step {gradient_step_idx}...")
+                
+                vla.eval()
+                val_losses = []
+                val_action_accuracies = []
+                val_reasoning_accuracies = []
+                val_l1_losses = []
+                
+                with torch.no_grad():
+                    for val_batch_idx, val_batch in enumerate(dataloader_val):
+                        # Limit validation to a fixed number of batches to speed it up, e.g., 50 batches
+                        # Adjust this number based on your validation set size and desired frequency
+                        if val_batch_idx >= 100: 
+                            break
+                        
+                        with torch.autocast("cuda", dtype=torch.bfloat16):
+                            val_output: CausalLMOutputWithPast = vla(
+                                input_ids=val_batch["input_ids"].to(device_id),
+                                attention_mask=val_batch["attention_mask"].to(device_id),
+                                pixel_values=val_batch["pixel_values"].to(torch.bfloat16).to(device_id),
+                                labels=val_batch["labels"],
+                            )
+                            val_loss = val_output.loss
+
+                        val_losses.append(val_loss.item())
+
+                        # Compute Accuracy and L1 Loss for Logging
+                        val_action_logits = val_output.logits[:, vla.module.vision_backbone.featurizer.patch_embed.num_patches : -1]
+                        val_action_preds = val_action_logits.argmax(dim=2)
+                        val_action_gt = val_batch["labels"][:, 1:].to(val_action_preds.device)
+                        val_mask = val_action_gt > action_tokenizer.action_token_begin_idx
+                        val_reasoning_mask = (val_action_gt != IGNORE_INDEX) & torch.logical_not(val_mask)
+
+                        if val_mask.sum().item() > 0:
+                            val_correct_preds = (val_action_preds == val_action_gt) & val_mask
+                            val_action_accuracy = val_correct_preds.sum().float() / val_mask.sum().float()
+                            val_action_accuracies.append(val_action_accuracy.item())
+                        
+                            # Compute L1 Loss on Predicted (Continuous) Actions
+                            # Ensure tensors are on CPU for numpy conversion if not already
+                            continuous_actions_pred_val = torch.tensor(
+                                action_tokenizer.decode_token_ids_to_actions(val_action_preds[val_mask].cpu().numpy())
+                            )
+                            continuous_actions_gt_val = torch.tensor(
+                                action_tokenizer.decode_token_ids_to_actions(val_action_gt[val_mask].cpu().numpy())
+                            )
+                            val_action_l1_loss = torch.nn.functional.l1_loss(continuous_actions_pred_val, continuous_actions_gt_val)
+                            val_l1_losses.append(val_action_l1_loss.item())
+
+                        if val_reasoning_mask.sum().item() > 0:
+                            val_correct_reasoning_preds = (val_action_preds == val_action_gt) & val_reasoning_mask
+                            val_reasoning_accuracy = val_correct_reasoning_preds.sum().float() / val_reasoning_mask.sum().float()
+                            val_reasoning_accuracies.append(val_reasoning_accuracy.item())
+                
+                # Aggregate metrics from all processes
+                # Summing up local sums and then dividing by total count is more robust
+                # For simplicity here, we average local averages if number of val batches is fixed and same for all
+                
+                # Sum of losses from all processes
+                total_val_loss_tensor = torch.tensor(sum(val_losses) if val_losses else 0.0, device=device_id)
+                dist.all_reduce(total_val_loss_tensor, op=dist.ReduceOp.SUM)
+                
+                # Count of batches processed for loss (can be different if some processes had fewer batches)
+                num_val_loss_batches_tensor = torch.tensor(len(val_losses), device=device_id)
+                dist.all_reduce(num_val_loss_batches_tensor, op=dist.ReduceOp.SUM)
+
+                avg_val_loss = (total_val_loss_tensor / num_val_loss_batches_tensor).item() if num_val_loss_batches_tensor.item() > 0 else 0
+
+                # Similar aggregation for other metrics
+                total_val_action_accuracy_tensor = torch.tensor(sum(val_action_accuracies) if val_action_accuracies else 0.0, device=device_id)
+                num_val_action_accuracy_batches_tensor = torch.tensor(len(val_action_accuracies), device=device_id)
+                dist.all_reduce(total_val_action_accuracy_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(num_val_action_accuracy_batches_tensor, op=dist.ReduceOp.SUM)
+                avg_val_action_accuracy = (total_val_action_accuracy_tensor / num_val_action_accuracy_batches_tensor).item() if num_val_action_accuracy_batches_tensor.item() > 0 else 0
+                
+                total_val_reasoning_accuracy_tensor = torch.tensor(sum(val_reasoning_accuracies) if val_reasoning_accuracies else 0.0, device=device_id)
+                num_val_reasoning_accuracy_batches_tensor = torch.tensor(len(val_reasoning_accuracies), device=device_id)
+                dist.all_reduce(total_val_reasoning_accuracy_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(num_val_reasoning_accuracy_batches_tensor, op=dist.ReduceOp.SUM)
+                avg_val_reasoning_accuracy = (total_val_reasoning_accuracy_tensor / num_val_reasoning_accuracy_batches_tensor).item() if num_val_reasoning_accuracy_batches_tensor.item() > 0 else 0
+
+                total_val_l1_loss_tensor = torch.tensor(sum(val_l1_losses) if val_l1_losses else 0.0, device=device_id)
+                num_val_l1_loss_batches_tensor = torch.tensor(len(val_l1_losses), device=device_id)
+                dist.all_reduce(total_val_l1_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(num_val_l1_loss_batches_tensor, op=dist.ReduceOp.SUM)
+                avg_val_l1_loss = (total_val_l1_loss_tensor / num_val_l1_loss_batches_tensor).item() if num_val_l1_loss_batches_tensor.item() > 0 else 0
+
+                if distributed_state.is_main_process:
+                    wandb.log(
+                        {
+                            "val_loss": avg_val_loss,
+                            "val_action_accuracy": avg_val_action_accuracy,
+                            "val_reasoning_accuracy": avg_val_reasoning_accuracy,
+                            "val_l1_loss": avg_val_l1_loss,
+                        },
+                        step=gradient_step_idx,
+                    )
+                    print(f"Step {gradient_step_idx}: Val Loss: {avg_val_loss:.4f}, Val Action Acc: {avg_val_action_accuracy:.4f}")
+
+                vla.train() # Switch back to training mode
+                dist.barrier() # Ensure all processes finish validation before continuing training
 
             # Stop training when max_steps is reached
             if gradient_step_idx == cfg.max_steps:
