@@ -44,4 +44,4 @@ torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --wandb_project "embodied_o1" \
   --wandb_entity "mahlerrrr76" \
   --save_steps 500 \
-  --validation_steps 10
+  --validation_steps 200

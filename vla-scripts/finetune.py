@@ -402,7 +402,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                     for val_batch_idx, val_batch in enumerate(dataloader_val):
                         # Limit validation to a fixed number of batches to speed it up, e.g., 50 batches
                         # Adjust this number based on your validation set size and desired frequency
-                        if val_batch_idx >= 100: 
+                        if val_batch_idx >= 50: 
                             break
                         
                         with torch.autocast("cuda", dtype=torch.bfloat16):
