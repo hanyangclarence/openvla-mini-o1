@@ -131,7 +131,7 @@ model.eval()
 # Create Action Tokenizer
 action_tokenizer = ActionTokenizer(processor.tokenizer)
 
-dataset_metadata = json.load(open(dataset_metadata_path, 'r'))
+dataset_metadata = json.load(open(dataset_metadata_path, 'r'))['rlbencho1']
 
 correct_action_token_count = 0
 total_action_token_count = 0
