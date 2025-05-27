@@ -134,7 +134,10 @@ action_tokenizer = ActionTokenizer(processor.tokenizer)
 dataset_metadata = json.load(open(dataset_metadata_path, 'r'))['rlbencho1']
 
 correct_action_token_count = 0
-total_action_token_count = 0
+correct_transition_token_count = 0
+correct_rotation_token_count = 0
+correct_gripper_token_count = 0
+correct_format_count = 0
 incorrect_format_count = 0
 l1_dist_list = []
 transition_l1_dist_list = []
@@ -216,9 +219,12 @@ for idx, path in enumerate(all_transitions):
     
     if len(pred_action_ids) == len(gt_action_ids):
         correct_action_token_count += np.sum(pred_action_ids == gt_action_ids)
+        correct_transition_token_count += np.sum(pred_action_ids[:3] == gt_action_ids[:3])
+        correct_rotation_token_count += np.sum(pred_action_ids[3:6] == gt_action_ids[3:6])
+        correct_gripper_token_count += np.sum(pred_action_ids[6] == gt_action_ids[6])
+        correct_format_count += 1
     else:
         incorrect_format_count += 1
-    total_action_token_count += len(gt_action_ids)
     
     if len(pred_action_ids) == len(gt_action_ids):
         pred_action = action_tokenizer.decode_token_ids_to_actions(pred_action_ids)
@@ -231,8 +237,13 @@ for idx, path in enumerate(all_transitions):
         gripper_l1_dist_list.append(gripper_l1_distance)
         l1_dist_list.append(action_l1_distance)
 
-    action_token_accuracy = correct_action_token_count / total_action_token_count
-    print(f"{idx + 1}/{len(all_transitions)}: Action Accuracy: {action_token_accuracy:.4f}, "
+    action_accuracy = correct_action_token_count / (correct_format_count * 7)
+    transition_accuracy = correct_transition_token_count / (correct_format_count * 3)
+    rotation_accuracy = correct_rotation_token_count / (correct_format_count * 3)
+    gripper_accuracy = correct_gripper_token_count / (correct_format_count * 1)
+    transition_accuracy 
+    print(f"{idx + 1}/{len(all_transitions)}: Action Accuracy: {action_accuracy:.4f}, {transition_accuracy:.4f}, "
+          f"{rotation_accuracy:.4f}, {gripper_accuracy:.4f}, "
           f"Incorrect Count: {incorrect_format_count}, "
           f"L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}, {np.mean(transition_l1_dist_list) if transition_l1_dist_list else 0:.4f}, "
           f"{np.mean(rotation_l1_dist_list) if rotation_l1_dist_list else 0:.4f}, "
