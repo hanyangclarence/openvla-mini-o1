@@ -137,6 +137,9 @@ correct_action_token_count = 0
 total_action_token_count = 0
 incorrect_format_count = 0
 l1_dist_list = []
+transition_l1_dist_list = []
+rotation_l1_dist_list = []
+gripper_l1_dist_list = []
 all_transitions = glob.glob("/gpfs/yanghan/data/runs_vla_data/val/*/0/video/*")
 for idx, path in enumerate(all_transitions):
     if "expert" in path:
@@ -157,7 +160,7 @@ for idx, path in enumerate(all_transitions):
     
     inputs = processor(prompt, image).to(device, dtype=torch.bfloat16)
     generated_ids = model.generate(**inputs, max_new_tokens=200)[0]
-    pred_action_ids = generated_ids[generated_ids > action_tokenizer.action_token_begin_idx]
+    pred_action_ids = generated_ids[generated_ids > action_tokenizer.action_token_begin_idx].cpu().numpy()
     
     output_str = processor.tokenizer.decode(
         generated_ids.cpu().numpy().tolist(),
@@ -209,6 +212,7 @@ for idx, path in enumerate(all_transitions):
         np.clip(gt_action, a_min=action_tokenizer.min_action, a_max=action_tokenizer.max_action),
         action_tokenizer.bins,
     )
+    gt_action_ids = action_tokenizer.tokenizer_len - gt_action_ids
     
     if len(pred_action_ids) == len(gt_action_ids):
         correct_action_token_count += np.sum(pred_action_ids == gt_action_ids)
@@ -219,9 +223,17 @@ for idx, path in enumerate(all_transitions):
     if len(pred_action_ids) == len(gt_action_ids):
         pred_action = action_tokenizer.decode_token_ids_to_actions(pred_action_ids)
         action_l1_distance = np.mean(np.abs(pred_action - gt_action))
+        transition_l1_distance = np.mean(np.abs(pred_action[:3] - gt_action[:3]))
+        rotation_l1_distance = np.mean(np.abs(pred_action[3:6] - gt_action[3:6]))
+        gripper_l1_distance = np.mean(np.abs(pred_action[6] - gt_action[6]))
+        transition_l1_dist_list.append(transition_l1_distance)
+        rotation_l1_dist_list.append(rotation_l1_distance)
+        gripper_l1_dist_list.append(gripper_l1_distance)
         l1_dist_list.append(action_l1_distance)
 
     action_token_accuracy = correct_action_token_count / total_action_token_count
-    print(f"{idx + 1}/{len(all_transitions)}: Action Token Accuracy: {action_token_accuracy:.4f}, "
-          f"Incorrect Format Count: {incorrect_format_count}, "
-          f"Average L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}")
+    print(f"{idx + 1}/{len(all_transitions)}: Action Accuracy: {action_token_accuracy:.4f}, "
+          f"Incorrect Count: {incorrect_format_count}, "
+          f"L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}, {np.mean(transition_l1_dist_list) if transition_l1_dist_list else 0:.4f}, "
+          f"{np.mean(rotation_l1_dist_list) if rotation_l1_dist_list else 0:.4f}, "
+            f"{np.mean(gripper_l1_dist_list) if gripper_l1_dist_list else 0:.4f}")
