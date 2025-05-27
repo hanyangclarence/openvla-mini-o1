@@ -192,9 +192,9 @@ for idx, path in enumerate(all_transitions):
     gt_action = tf.concat([action_delta_xyz, action_delta_rpy, action_gripper], axis=-1)
     
     # normalize action with metadata, with default q99 method
-    low = dataset_metadata['action']['q01']
-    high = dataset_metadata['action']['q99']
-    mask = dataset_metadata['action']['mask']
+    low = tf.constant(dataset_metadata['action']['q01'], dtype=tf.float32)
+    high = tf.constant(dataset_metadata['action']['q99'], dtype=tf.float32)
+    mask = tf.constant(dataset_metadata['action']['mask'], dtype=tf.bool)
     
     gt_action = tf.where(
         mask,
