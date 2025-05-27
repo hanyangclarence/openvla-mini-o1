@@ -564,6 +564,9 @@ def finetune(cfg: FinetuneConfig) -> None:
                         },
                         step=gradient_step_idx,
                     )
+                    print(
+                        f"Step {gradient_step_idx}: Action Token Accuracy: {action_token_accuracy:.4f}, {trans_token_accuracy:.4f}, "
+                        f"{rot_token_accuracy:.4f}, {gripper_token_accuracy:.4f}")
                 vla.train()
                 dist.barrier()
 
