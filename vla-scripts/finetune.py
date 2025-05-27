@@ -86,6 +86,7 @@ class FinetuneConfig:
     max_steps: int = 200_000                                        # Max number of fine-tuning steps
     save_steps: int = 5000                                          # Interval for checkpoint saving
     validation_steps: int = 1000                                    # Interval for validation
+    generate_steps: int = 50
     learning_rate: float = 5e-4                                     # Fine-tuning learning rate
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
     image_aug: bool = True                                          # Whether to train with image augmentations
@@ -491,6 +492,80 @@ def finetune(cfg: FinetuneConfig) -> None:
 
                 vla.train() # Switch back to training mode
                 dist.barrier() # Ensure all processes finish validation before continuing training
+
+            # Generate outputs as validation
+            if gradient_step_idx > 0 and gradient_step_idx % cfg.generate_steps == 0:
+                if distributed_state.is_main_process:
+                    print(f"Generating outputs for Step {gradient_step_idx}...")
+                
+                # generate sample for each item in the batch
+                vla.eval()
+                correct_token_count = 0
+                correct_trans_count = 0
+                correct_rot_count = 0
+                correct_gripper_count = 0
+                total_sample_count = 0
+                with torch.no_grad():
+                    for i in range(batch["input_ids"].shape[0]):
+                        input_ids_sample = batch["input_ids"][i]
+                        labels_sample = batch["labels"][i]
+                        attention_mask_sample = batch["attention_mask"][i]
+                        pixel_values_sample = batch["pixel_values"][i:i + 1].to(vla.module.dtype).to(device_id)
+                        
+                        # Determine prompt length
+                        first_target_indices = (labels_sample != IGNORE_INDEX).nonzero(as_tuple=True)[0]
+                        prompt_len = first_target_indices[0].item()
+                        
+                        input_ids_sample = input_ids_sample[:prompt_len].unsqueeze(0).to(device_id)
+                        attention_mask_sample = attention_mask_sample[:prompt_len].unsqueeze(0).to(device_id)
+                        
+                        generated_ids = vla.module.generate(
+                            input_ids=input_ids_sample,
+                            attention_mask=attention_mask_sample,
+                            pixel_values=pixel_values_sample,
+                            max_new_tokens=200,
+                        )[0]
+                        
+                        # calculate action token accuracy
+                        gt_action_ids = labels_sample[labels_sample > action_tokenizer.action_token_begin_idx]
+                        pred_action_ids = generated_ids[generated_ids > action_tokenizer.action_token_begin_idx].cpu()
+                        
+                        total_sample_count += 1
+                        if len(gt_action_ids) != len(pred_action_ids):
+                            continue
+                        correct_token_count += (gt_action_ids == pred_action_ids).sum().item()
+                        correct_trans_count += (gt_action_ids[:3] == pred_action_ids[:3]).sum().item()
+                        correct_rot_count += (gt_action_ids[3:6] == pred_action_ids[3:6]).sum().item()
+                        correct_gripper_count += (gt_action_ids[6] == pred_action_ids[6]).sum().item()
+                
+                # aggregate metrics from all processes
+                correct_token_count_tensor = torch.tensor(correct_token_count, device=device_id)
+                correct_trans_count_tensor = torch.tensor(correct_trans_count, device=device_id)
+                correct_rot_count_tensor = torch.tensor(correct_rot_count, device=device_id)
+                correct_gripper_count_tensor = torch.tensor(correct_gripper_count, device=device_id)
+                total_sample_count_tensor = torch.tensor(total_sample_count, device=device_id)
+                dist.all_reduce(correct_token_count_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(correct_trans_count_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(correct_rot_count_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(correct_gripper_count_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_sample_count_tensor, op=dist.ReduceOp.SUM)
+                
+                if distributed_state.is_main_process:
+                    action_token_accuracy = correct_token_count_tensor.item() / (total_sample_count_tensor.item() * 7) if total_sample_count_tensor.item() > 0 else 0
+                    trans_token_accuracy = correct_trans_count_tensor.item() / (total_sample_count_tensor.item() * 3) if total_sample_count_tensor.item() > 0 else 0
+                    rot_token_accuracy = correct_rot_count_tensor.item() / (total_sample_count_tensor.item() * 3) if total_sample_count_tensor.item() > 0 else 0
+                    gripper_token_accuracy = correct_gripper_count_tensor.item() / total_sample_count_tensor.item() if total_sample_count_tensor.item() > 0 else 0
+                    wandb.log(
+                        {
+                            "action_token_accuracy": action_token_accuracy,
+                            "trans_token_accuracy": trans_token_accuracy,
+                            "rot_token_accuracy": rot_token_accuracy,
+                            "gripper_token_accuracy": gripper_token_accuracy,
+                        },
+                        step=gradient_step_idx,
+                    )
+                vla.train()
+                dist.barrier()
 
             # Stop training when max_steps is reached
             if gradient_step_idx == cfg.max_steps:
