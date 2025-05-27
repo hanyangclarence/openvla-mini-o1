@@ -6,6 +6,7 @@ from peft import LoraConfig, PeftModel
 from typing import Optional
 import glob
 import os
+import json
 
 pdb.set_trace()
 
@@ -39,9 +40,8 @@ for path in all_transitions:
     if not os.path.exists(obs_path) or not os.path.exists(json_path):
         continue
     
-    with open(json_path, "r") as f:
-        json_data = f.read()
-        task_instruction = json_data['lang_goal']
+    json_data = json.load(open(json_path, 'r'))
+    task_instruction = json_data['lang_goal']
     
     image = Image.open(obs_path).convert("RGB")
     prompt = f"In: What action should the robot take to {task_instruction}?\nOut:"
