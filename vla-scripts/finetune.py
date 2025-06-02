@@ -523,30 +523,84 @@ def finetune(cfg: FinetuneConfig) -> None:
                 correct_gripper_count = 0
                 total_sample_count = 0
                 with torch.no_grad():
-                    for i in range(batch["input_ids"].shape[0]):
-                        input_ids_sample = batch["input_ids"][i]
+                    # for i in range(batch["input_ids"].shape[0]):
+                    #     input_ids_sample = batch["input_ids"][i]
+                    #     labels_sample = batch["labels"][i]
+                    #     attention_mask_sample = batch["attention_mask"][i]
+                    #     pixel_values_sample = batch["pixel_values"][i:i + 1].to(torch.bfloat16).to(device_id)
+                    #     priprio_sample = batch["proprio"][i:i + 1].to(torch.bfloat16).to(device_id) if cfg.use_proprio else None
+                        
+                    #     # Determine prompt length
+                    #     first_target_indices = (labels_sample != IGNORE_INDEX).nonzero(as_tuple=True)[0]
+                    #     prompt_len = first_target_indices[0].item()
+                        
+                    #     input_ids_sample = input_ids_sample[:prompt_len].unsqueeze(0).to(device_id)
+                    #     attention_mask_sample = attention_mask_sample[:prompt_len].unsqueeze(0).to(device_id)
+                        
+                    #     generated_ids = vla.module.generate(
+                    #         input_ids=input_ids_sample,
+                    #         attention_mask=attention_mask_sample,
+                    #         pixel_values=pixel_values_sample,
+                    #         proprio=priprio_sample,
+                    #         proprio_projector=proprio_projector if cfg.use_proprio else None,
+                    #         eos_token_id=processor.tokenizer.eos_token_id,
+                    #         pad_token_id=processor.tokenizer.pad_token_id,
+                    #         max_new_tokens=200,
+                    #     )[0]
+                        
+                    #     # calculate action token accuracy
+                    #     gt_action_ids = labels_sample[labels_sample > action_tokenizer.action_token_begin_idx]
+                    #     pred_action_ids = generated_ids[generated_ids > action_tokenizer.action_token_begin_idx].cpu()
+                        
+                    #     total_sample_count += 1
+                    #     if len(gt_action_ids) != len(pred_action_ids):
+                    #         continue
+                    #     correct_token_count += (gt_action_ids == pred_action_ids).sum().item()
+                    #     correct_trans_count += (gt_action_ids[:3] == pred_action_ids[:3]).sum().item()
+                    #     correct_rot_count += (gt_action_ids[3:6] == pred_action_ids[3:6]).sum().item()
+                    #     correct_gripper_count += (gt_action_ids[6] == pred_action_ids[6]).sum().item()
+                    
+                    batch_size = batch["input_ids"].shape[0]
+                    input_ids_list = []
+                    attention_mask_list = []
+                    prompt_lengths = []
+                    
+                    for i in range(batch_size):
                         labels_sample = batch["labels"][i]
-                        attention_mask_sample = batch["attention_mask"][i]
-                        pixel_values_sample = batch["pixel_values"][i:i + 1].to(torch.bfloat16).to(device_id)
-                        priprio_sample = batch["proprio"][i:i + 1].to(torch.bfloat16).to(device_id) if cfg.use_proprio else None
-                        
-                        # Determine prompt length
                         first_target_indices = (labels_sample != IGNORE_INDEX).nonzero(as_tuple=True)[0]
-                        prompt_len = first_target_indices[0].item()
+                        prompt_len = first_target_indices[0].item() if len(first_target_indices) > 0 else 0
                         
-                        input_ids_sample = input_ids_sample[:prompt_len].unsqueeze(0).to(device_id)
-                        attention_mask_sample = attention_mask_sample[:prompt_len].unsqueeze(0).to(device_id)
-                        
-                        generated_ids = vla.module.generate(
-                            input_ids=input_ids_sample,
-                            attention_mask=attention_mask_sample,
-                            pixel_values=pixel_values_sample,
-                            proprio=priprio_sample,
-                            proprio_projector=proprio_projector if cfg.use_proprio else None,
-                            eos_token_id=processor.tokenizer.eos_token_id,
-                            pad_token_id=processor.tokenizer.pad_token_id,
-                            max_new_tokens=200,
-                        )[0]
+                        prompt_lengths.append(prompt_len)
+                        input_ids_list.append(batch["input_ids"][i, :prompt_len])
+                        attention_mask_list.append(batch["attention_mask"][i, :prompt_len])
+                    
+                    max_prompt_len = max(prompt_lengths)
+                    padded_input_ids = torch.full(
+                        (batch_size, max_prompt_len), processor.tokenizer.pad_token_id, dtype=torch.long, device=device_id
+                    )
+                    padded_attention_mask = torch.zeros(
+                        (batch_size, max_prompt_len), dtype=torch.long, device=device_id
+                    )
+                    for i in range(batch_size):
+                        padded_input_ids[i, :prompt_lengths[i]] = input_ids_list[i]
+                        padded_attention_mask[i, :prompt_lengths[i]] = attention_mask_list[i]
+                    
+                    all_generated_ids = vla.module.generate(
+                        input_ids=padded_input_ids.to(device_id),
+                        attention_mask=padded_attention_mask.to(device_id),
+                        pixel_values=batch["pixel_values"].to(torch.bfloat16).to(device_id),
+                        proprio=batch["proprio"].to(torch.bfloat16).to(device_id) if cfg.use_proprio else None,
+                        proprio_projector=proprio_projector if cfg.use_proprio else None,
+                        eos_token_id=processor.tokenizer.eos_token_id,
+                        pad_token_id=processor.tokenizer.pad_token_id,
+                        max_new_tokens=200,
+                        use_cache=False
+                    )
+                    
+                    # calculate statistics
+                    for i in range(batch_size):
+                        generated_ids = all_generated_ids[i]
+                        labels_sample = batch["labels"][i]
                         
                         # calculate action token accuracy
                         gt_action_ids = labels_sample[labels_sample > action_tokenizer.action_token_begin_idx]
