@@ -279,7 +279,7 @@ def finetune(cfg: FinetuneConfig) -> None:
         cfg.dataset_name,
         batch_transform,
         resize_resolution=tuple(vla.module.config.image_sizes),
-        shuffle_buffer_size=cfg.shuffle_buffer_size,
+        shuffle_buffer_size=cfg.shuffle_buffer_size // 10,
         image_aug=False,
         train=False,
     )
