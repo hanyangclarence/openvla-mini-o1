@@ -389,7 +389,6 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
         # === Handle Generation with Cache (`input_ids.shape[1] == 1`) =>> requires `past_keys_values` ===
         if input_ids.shape[1] == 1:
-            assert False, "Not implemented"
             assert input_ids.shape[0] == 1, "Generation is only currently supported for batch size of 1!"
             assert past_key_values is not None, "You must provide `past_key_values` during cached generation!"
             assert labels is None, "Unexpected key `labels` provided during cached generation!"

@@ -442,6 +442,8 @@ def finetune(cfg: FinetuneConfig) -> None:
                                 attention_mask=val_batch["attention_mask"].to(device_id),
                                 pixel_values=val_batch["pixel_values"].to(torch.bfloat16).to(device_id),
                                 labels=val_batch["labels"],
+                                proprio=batch["proprio"] if cfg.use_proprio else None,
+                                proprio_projector=proprio_projector if cfg.use_proprio else None,
                             )
                             val_loss = val_output.loss
 
@@ -553,6 +555,10 @@ def finetune(cfg: FinetuneConfig) -> None:
                             input_ids=input_ids_sample,
                             attention_mask=attention_mask_sample,
                             pixel_values=pixel_values_sample,
+                            proprio=batch["proprio"][i:i + 1].to(device_id) if cfg.use_proprio else None,
+                            proprio_projector=proprio_projector if cfg.use_proprio else None,
+                            eos_token_id=processor.tokenizer.eos_token_id,
+                            pad_token_id=processor.tokenizer.pad_token_id,
                             max_new_tokens=200,
                         )[0]
                         
