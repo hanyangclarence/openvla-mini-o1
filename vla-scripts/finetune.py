@@ -543,6 +543,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                         labels_sample = batch["labels"][i]
                         attention_mask_sample = batch["attention_mask"][i]
                         pixel_values_sample = batch["pixel_values"][i:i + 1].to(vla.module.dtype).to(device_id)
+                        priprio_sample = batch["proprio"][i:i + 1].to(vla.module.dtype).to(device_id) if cfg.use_proprio else None
                         
                         # Determine prompt length
                         first_target_indices = (labels_sample != IGNORE_INDEX).nonzero(as_tuple=True)[0]
@@ -555,7 +556,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                             input_ids=input_ids_sample,
                             attention_mask=attention_mask_sample,
                             pixel_values=pixel_values_sample,
-                            proprio=batch["proprio"][i:i + 1].to(device_id) if cfg.use_proprio else None,
+                            proprio=priprio_sample,
                             proprio_projector=proprio_projector if cfg.use_proprio else None,
                             eos_token_id=processor.tokenizer.eos_token_id,
                             pad_token_id=processor.tokenizer.pad_token_id,
