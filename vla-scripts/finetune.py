@@ -451,36 +451,21 @@ def finetune(cfg: FinetuneConfig) -> None:
                         val_losses.append(val_loss.item())
 
                         # Compute Accuracy and L1 Loss for Logging
-                        val_action_logits = val_output.logits[:, vla.module.vision_backbone.featurizer.patch_embed.num_patches : -1]
-                        val_action_preds = val_action_logits.argmax(dim=2)
-                        val_action_gt = val_batch["labels"][:, 1:].to(val_action_preds.device)
-                        val_mask = val_action_gt > action_tokenizer.action_token_begin_idx
-                        val_reasoning_mask = (val_action_gt != IGNORE_INDEX) & torch.logical_not(val_mask)
-
-                        if val_mask.sum().item() > 0:
-                            val_correct_preds = (val_action_preds == val_action_gt) & val_mask
-                            val_action_accuracy = val_correct_preds.sum().float() / val_mask.sum().float()
-                            val_action_accuracies.append(val_action_accuracy.item())
+                        pred_ids = val_output.logits[:, NUM_PATCHES : -1].argmax(dim=2)
+                        gt_ids = val_batch["labels"][:, 1:].to(device_id)
+                        action_mask = gt_ids > action_tokenizer.action_token_begin_idx
+                        reasoning_mask = (gt_ids != IGNORE_INDEX) & torch.logical_not(action_mask)
                         
-                            # Compute L1 Loss on Predicted (Continuous) Actions
-                            # Ensure tensors are on CPU for numpy conversion if not already
-                            continuous_actions_pred_val = torch.tensor(
-                                action_tokenizer.decode_token_ids_to_actions(val_action_preds[val_mask].cpu().numpy())
-                            )
-                            continuous_actions_gt_val = torch.tensor(
-                                action_tokenizer.decode_token_ids_to_actions(val_action_gt[val_mask].cpu().numpy())
-                            )
-                            val_action_l1_loss = torch.nn.functional.l1_loss(continuous_actions_pred_val, continuous_actions_gt_val)
-                            val_l1_losses.append(val_action_l1_loss.item())
-
-                        if val_reasoning_mask.sum().item() > 0:
-                            val_correct_reasoning_preds = (val_action_preds == val_action_gt) & val_reasoning_mask
-                            val_reasoning_accuracy = val_correct_reasoning_preds.sum().float() / val_reasoning_mask.sum().float()
-                            val_reasoning_accuracies.append(val_reasoning_accuracy.item())
+                        val_action_accuracy = compute_token_accuracy(pred_ids, gt_ids, action_mask)
+                        val_reasoning_accuracy = compute_token_accuracy(pred_ids, gt_ids, reasoning_mask)
+                        val_action_l1_loss = compute_actions_l1_loss(
+                            action_tokenizer, pred_ids, gt_ids, action_mask
+                        )
+                        val_action_accuracies.append(val_action_accuracy.item())
+                        val_reasoning_accuracies.append(val_reasoning_accuracy.item())
+                        val_l1_losses.append(val_action_l1_loss.item())
                 
                 # Aggregate metrics from all processes
-                # Summing up local sums and then dividing by total count is more robust
-                # For simplicity here, we average local averages if number of val batches is fixed and same for all
                 
                 # Sum of losses from all processes
                 total_val_loss_tensor = torch.tensor(sum(val_losses) if val_losses else 0.0, device=device_id)
@@ -519,7 +504,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                             "Val/reasoning_accuracy": avg_val_reasoning_accuracy,
                             "Val/l1_loss": avg_val_l1_loss,
                         },
-                        step=gradient_step_idx,
+                        step=log_step,
                     )
                     print(f"Step {gradient_step_idx}: Val Loss: {avg_val_loss:.4f}, Val Action Acc: {avg_val_action_accuracy:.4f}")
 
@@ -600,7 +585,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                             "Gen/rot_token_accuracy": rot_token_accuracy,
                             "Gen/gripper_token_accuracy": gripper_token_accuracy,
                         },
-                        step=gradient_step_idx,
+                        step=log_step,
                     )
                     print(
                         f"Step {gradient_step_idx}: Action Token Accuracy: {action_token_accuracy:.4f}, {trans_token_accuracy:.4f}, "
