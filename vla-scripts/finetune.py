@@ -117,6 +117,7 @@ class FinetuneConfig:
     wandb_project: str = "openvla"                                  # Name of W&B project to log to (use default!)
     wandb_entity: str = "stanford-voltron"                          # Name of entity to log under
     run_id_note: Optional[str] = None                               # Extra note for logging, Weights & Biases
+    wandb_log_freq: int = 10                         # WandB logging frequency in steps
 
     debug: bool = False
 
