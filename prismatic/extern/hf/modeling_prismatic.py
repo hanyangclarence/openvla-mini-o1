@@ -302,6 +302,7 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
         )
         self.vocab_size = config.text_config.vocab_size
         self.pad_token_id = config.pad_token_id
+        self.llm_dim = config.text_config.hidden_size
 
         # HF Boilerplate =>> initializes weights via `_init_weights()` and sets gradient checkpointing
         self.post_init()
