@@ -98,7 +98,11 @@ class RLDSBatchTransform:
 
         # Tensorize =>> Run Image Transform to get `pixel_values` =>> Return
         input_ids, labels = torch.tensor(input_ids), torch.tensor(labels)
-        pixel_values = self.image_transform(img)
+        if isinstance(img, list):
+            pixel_values = [self.image_transform(image) for image in img]
+            pixel_values = torch.cat(pixel_values, dim=0)
+        else:
+            pixel_values = self.image_transform(img)
 
         # critical, some tokenizers have different numbers of "end tokens".
         num_end_tokens = 1
