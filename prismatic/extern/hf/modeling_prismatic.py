@@ -70,6 +70,7 @@ class PrismaticVisionBackbone(nn.Module):
     ) -> None:
         super().__init__()
         self.use_fused_vision_backbone = use_fused_vision_backbone
+        self.num_images_in_input = 1  # Default value, can be overridden later
 
         # [Contract] Validate number of (fused) vision backbones, create "alpha" featurizer and Instantiate
         #   =>> Note :: Monkey-Patch the `forward()` function of the backbone to ensure FSDP-compatibility
@@ -111,16 +112,67 @@ class PrismaticVisionBackbone(nn.Module):
                 if isinstance(module, LayerScale):
                     ls_apply_patch(module)
 
+    def get_num_patches(self) -> int:
+        """
+        Returns the number of vision patches output by the vision backbone.
+
+        Returns:
+            Number of patches per image
+        """
+        return self.featurizer.patch_embed.num_patches
+
+    def get_num_images_in_input(self) -> int:
+        """
+        Returns the number of input images for the vision backbone.
+
+        Returns:
+            Number of images expected in the input
+        """
+        return self.num_images_in_input
+
+    def set_num_images_in_input(self, num_images_in_input: int) -> None:
+        """
+        Sets the number of input images for the vision backbone.
+
+        Args:
+            num_images_in_input: Number of images to expect in the input
+        """
+        self.num_images_in_input = num_images_in_input
+
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         """Run image (`pixel_values`) through featurizer; if channel-stacked, then dispatch and sequence stack."""
-        if not self.use_fused_vision_backbone:
-            return self.featurizer(pixel_values)
+        if self.num_images_in_input == 1:
+            if not self.use_fused_vision_backbone:
+                return self.featurizer(pixel_values)
 
-        # Split `pixel_values :: [bsz, 2 * 3, resolution, resolution]` =>> featurize =>> channel stack
-        img, img_fused = torch.split(pixel_values, [3, 3], dim=1)
-        patches, patches_fused = self.featurizer(img), self.fused_featurizer(img_fused)
+            # Split `pixel_values :: [bsz, 2 * 3, resolution, resolution]` =>> featurize =>> channel stack
+            img, img_fused = torch.split(pixel_values, [3, 3], dim=1)
+            patches, patches_fused = self.featurizer(img), self.fused_featurizer(img_fused)
 
-        return torch.cat([patches, patches_fused], dim=2)
+            return torch.cat([patches, patches_fused], dim=2)
+
+        else:
+            assert self.use_fused_vision_backbone, "Multi-image inputs require using fused backbone!"
+
+            # Split `pixel_values` into individual images (each with 6 channels: 3 for SigLIP + 3 for DINOv2)
+            images = torch.split(pixel_values, [6] * self.num_images_in_input, dim=1)
+
+            # Process each image and collect patches
+            all_patches = []
+            for img in images:
+                # Split each image further into two stacks of channels (each with 3 channels)
+                img_regular, img_fused = torch.split(img, [3, 3], dim=1)
+
+                # Get patches from both SigLIP and DINOv2 vision transformers
+                patches = self.featurizer(img_regular)
+                patches_fused = self.fused_featurizer(img_fused)
+
+                # Concatenate SigLIP and DINOv2 patches along the hidden dimension
+                combined_patches = torch.cat([patches, patches_fused], dim=2)
+                all_patches.append(combined_patches)
+
+            # Concatenate all patches along the patch dimension
+            return torch.cat(all_patches, dim=1)
 
 
 # === Prismatic Projector (nn.Module) Definitions ===
@@ -287,6 +339,17 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
         return updated_embeddings
 
+    def _process_proprio_features(self, projected_patch_embeddings, proprio, proprio_projector):
+        """Process proprioceptive features and append to vision features"""
+        if proprio_projector is not None and proprio is not None:
+            # projected_patch_embeddings: (bsz, num_patches * num_images, llm_dim)
+            # proprio: (bsz, proprio_dim) or (propro_dim,)
+            proprio = proprio.reshape(projected_patch_embeddings.shape[0], -1)  # (bsz, proprio_dim)
+            proprio_features = proprio_projector(proprio)  # (bsz, llm_dim)
+            proprio_features = proprio_features.unsqueeze(dim=1)  # (bsz, 1, llm_dim)
+            # For simplicity, just append proprio token to the end of projected vision patch tokens
+            return torch.cat((projected_patch_embeddings, proprio_features), dim=1)
+        return projected_patch_embeddings
     # === Core Prismatic VLM `forward()` Logic ===
     def forward(
         self,
@@ -301,6 +364,8 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         output_projector_features: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        proprio=None,
+        proprio_projector=None,
     ) -> Union[Tuple, PrismaticCausalLMOutputWithPast]:
         """Run a forward pass through the VLM, returning a PrismaticCausalLMOutputWithPast instance."""
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -323,6 +388,7 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
         # === Handle Generation with Cache (`input_ids.shape[1] == 1`) =>> requires `past_keys_values` ===
         if input_ids.shape[1] == 1:
+            assert False, "Not implemented"
             assert input_ids.shape[0] == 1, "Generation is only currently supported for batch size of 1!"
             assert past_key_values is not None, "You must provide `past_key_values` during cached generation!"
             assert labels is None, "Unexpected key `labels` provided during cached generation!"
@@ -342,6 +408,7 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
         # === Handle Unimodal Forward ===
         elif pixel_values is None:
+            assert False, "Not implemented"
             assert (input_ids is not None) and (inputs_embeds is None), "Missing `input_ids` in language-only forward!"
             assert past_key_values is None, "Unexpected key `past_key_values` provided during language-only forward!"
 
@@ -367,6 +434,12 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
             # Projection Logic =>> Update Attention Mask
             projected_patch_embeddings = self.projector(patch_features)
+            
+            # Add proprioceptive state if provided
+            projected_patch_embeddings = self._process_proprio_features(
+                projected_patch_embeddings, proprio, proprio_projector
+            )
+            
             projected_patch_attention_mask = None
             if attention_mask is not None:
                 projected_patch_attention_mask = torch.full(
@@ -479,6 +552,8 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
                 "pixel_values": pixel_values,
                 "past_key_values": past_key_values,
                 "use_cache": kwargs.get("use_cache"),
+                "proprio": kwargs.get("proprio"),
+                "proprio_projector": kwargs.get("proprio_projector"),
             }
         )
 

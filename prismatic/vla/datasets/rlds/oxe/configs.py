@@ -678,8 +678,8 @@ OXE_DATASET_CONFIGS = {
         "action_encoding": ActionEncoding.EEF_POS,
     },
    "rlbencho1":{
-        "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
-        "depth_obs_keys": {"primary": "depth_image", "secondary": None, "wrist": None},
+        "image_obs_keys": {"primary": "image", "secondary": None, "wrist": "wrist_image"},
+        "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
         "state_obs_keys": ["state"],
         "state_encoding": StateEncoding.POS_QUAT,
         "action_encoding": ActionEncoding.EEF_POS,

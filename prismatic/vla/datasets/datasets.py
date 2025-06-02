@@ -39,6 +39,7 @@ class RLDSBatchTransform:
     predict_stop_token: bool = True
     image_window_size: int = 1
     use_wrist_image: bool = False
+    use_proprio: bool = False
 
     def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Converts a RLDS batch to the format expected by the OpenVLA collator/models."""
@@ -109,7 +110,13 @@ class RLDSBatchTransform:
         if not self.predict_stop_token:
             labels[-num_end_tokens:] = IGNORE_INDEX
 
-        return dict(pixel_values=pixel_values, input_ids=input_ids, labels=labels, dataset_name=dataset_name)
+        return_dict = dict(pixel_values=pixel_values, input_ids=input_ids, labels=labels, dataset_name=dataset_name)
+        
+        if self.use_proprio:
+            proprio = rlds_batch["observation"]["proprio"]
+            return_dict["proprio"] = proprio
+        
+        return return_dict
 
 
 class RLDSDataset(IterableDataset):

@@ -32,16 +32,19 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --vla_path "openvla/openvla-7b" \
-  --data_root_dir dataset/rl_bench_o1_dataset/1.0.0 \
+  --data_root_dir dataset/rl_bench_o1_dataset/2.0.0 \
   --dataset_name rlbencho1 \
   --run_root_dir logs \
-  --adapter_tmp_dir lora_logs \
   --lora_rank 32 \
-  --batch_size 10 \
+  --batch_size 5 \
+  --num_images_in_input 2 \
+  --use_proprio True \
   --grad_accumulation_steps 1 \
   --learning_rate 5e-4 \
   --image_aug False \
   --wandb_project "embodied_o1" \
   --wandb_entity "mahlerrrr76" \
   --save_steps 500 \
-  --validation_steps 200
+  --validation_steps 200 \
+  --generate_steps 50 \
+  --debug False

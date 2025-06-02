@@ -35,6 +35,7 @@ from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_t
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import MultiStepLR
 from transformers import AutoConfig, AutoImageProcessor, AutoModelForVision2Seq, AutoProcessor, BitsAndBytesConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
@@ -43,9 +44,11 @@ from prismatic.extern.hf.modeling_prismatic import OpenVLAForActionPrediction
 from prismatic.extern.hf.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
 from prismatic.models.backbones.llm.prompting import PurePromptBuilder, VicunaV15ChatPromptBuilder
 from prismatic.util.data_utils import PaddedCollatorForActionPrediction
+from prismatic.models.projectors import ProprioProjector
 from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.datasets import RLDSBatchTransform, RLDSDataset
 from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
+from prismatic.training.finetune_utils import *
 
 # Sane Defaults
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -81,6 +84,10 @@ class FinetuneConfig:
     run_root_dir: Path = Path("runs")                               # Path to directory to store logs & checkpoints
     adapter_tmp_dir: Path = Path("adapter-tmp")                     # Temporary directory for LoRA weights before fusing
 
+    # Architecture
+    num_images_in_input: int = 1                                   # Number of images in the VLA input (default: 1)
+    use_proprio: bool = False
+    
     # Fine-tuning Parameters
     batch_size: int = 16                                            # Fine-tuning batch size
     max_steps: int = 200_000                                        # Max number of fine-tuning steps
@@ -88,12 +95,16 @@ class FinetuneConfig:
     validation_steps: int = 1000                                    # Interval for validation
     generate_steps: int = 50
     learning_rate: float = 5e-4                                     # Fine-tuning learning rate
+    lr_warmup_steps: int = 0                                        # Number of steps to warm up learning rate (from 10% to 100%)
+    num_steps_before_decay: int = 100_000                           # Number of steps before LR decays by 10x
     grad_accumulation_steps: int = 1                                # Gradient accumulation steps
     image_aug: bool = True                                          # Whether to train with image augmentations
     shuffle_buffer_size: int = 100_000                              # Dataloader shuffle buffer size (can reduce if OOM)
     save_latest_checkpoint_only: bool = True                        # Whether to save only one checkpoint per run and
                                                                     #   continually overwrite the latest checkpoint
                                                                     #   (If False, saves all checkpoints)
+    resume: bool = False                             # If True, resumes from checkpoint
+    resume_step: Optional[int] = None                # (When `resume==True`) Step number that we are resuming from
 
     # LoRA Arguments
     use_lora: bool = True                                           # Whether to use LoRA fine-tuning
@@ -107,11 +118,14 @@ class FinetuneConfig:
     wandb_entity: str = "stanford-voltron"                          # Name of entity to log under
     run_id_note: Optional[str] = None                               # Extra note for logging, Weights & Biases
 
-    # fmt: on
+    debug: bool = False
 
 
 @draccus.wrap()
 def finetune(cfg: FinetuneConfig) -> None:
+    if cfg.debug:
+        import pdb
+        pdb.set_trace()
     print(f"Fine-tuning OpenVLA Model `{cfg.vla_path}` on `{cfg.dataset_name}`")
 
     # [Validate] Ensure GPU Available & Set Device / Distributed Context
@@ -155,13 +169,16 @@ def finetune(cfg: FinetuneConfig) -> None:
 
     # Load OpenVLA Processor and Model using HF AutoClasses
     processor = AutoProcessor.from_pretrained(cfg.vla_path, trust_remote_code=True)
-    vla = AutoModelForVision2Seq.from_pretrained(
+    vla = OpenVLAForActionPrediction.from_pretrained(
         cfg.vla_path,
         torch_dtype=torch.bfloat16,
         quantization_config=quantization_config,
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
+
+    # Set number of images in VLA input
+    vla.vision_backbone.set_num_images_in_input(cfg.num_images_in_input)
 
     # Device Placement =>> note that BitsAndBytes automatically handles for quantized training
     if cfg.use_quantization:
@@ -182,12 +199,41 @@ def finetune(cfg: FinetuneConfig) -> None:
         vla.print_trainable_parameters()
 
     # Wrap VLA in PyTorch DDP Wrapper for Multi-GPU Training
-    vla = DDP(vla, device_ids=[device_id], find_unused_parameters=True, gradient_as_bucket_view=True)
+    vla = wrap_ddp(vla, device_id, find_unused=True)
+
+    # If applicable, instantiate proprio projector
+    if cfg.use_proprio:
+        proprio_projector = init_module(
+            ProprioProjector,
+            "proprio_projector",
+            cfg,
+            device_id,
+            {"llm_dim": vla.module.llm_dim, "proprio_dim": 8},
+        )
+    
+    # Get number of vision patches
+    NUM_PATCHES = vla.module.vision_backbone.get_num_patches() * vla.module.vision_backbone.get_num_images_in_input()
+    # If we have proprio inputs, a single proprio embedding is appended to the end of the vision patch embeddings
+    if cfg.use_proprio:
+        NUM_PATCHES += 1
 
     # Create Optimizer =>> note that we default to a simple constant learning rate!
     trainable_params = [param for param in vla.parameters() if param.requires_grad]
+    if cfg.use_proprio:
+        trainable_params += [param for param in proprio_projector.parameters() if param.requires_grad]
+    print(f"# total trainable params: {sum(p.numel() for p in trainable_params)}")
     optimizer = AdamW(trainable_params, lr=cfg.learning_rate)
+    
+    # Record original learning rate
+    original_lr = optimizer.param_groups[0]["lr"]
 
+    # Create learning rate scheduler
+    scheduler = MultiStepLR(
+        optimizer,
+        milestones=[cfg.num_steps_before_decay],  # Number of steps after which LR will change
+        gamma=0.1,  # Multiplicative factor of learning rate decay
+    )
+    
     # Create Action Tokenizer
     action_tokenizer = ActionTokenizer(processor.tokenizer)
 
@@ -206,13 +252,19 @@ def finetune(cfg: FinetuneConfig) -> None:
     #     prompt_builder_fn=PurePromptBuilder if "v01" not in cfg.vla_path else VicunaV15ChatPromptBuilder,
     # )
     # ---
+    
+    # We assume that the model takes as input one third-person camera image and 1 or 2 optional wrist camera image(s)
+    use_wrist_image = cfg.num_images_in_input > 1
+    
     batch_transform = RLDSBatchTransform(
         action_tokenizer,
         processor.tokenizer,
         image_transform=processor.image_processor.apply_transform,
-        prompt_builder_fn=PurePromptBuilder if "v01" not in cfg.vla_path else VicunaV15ChatPromptBuilder,
+        prompt_builder_fn=PurePromptBuilder,
+        use_wrist_image=use_wrist_image,
+        use_proprio=cfg.use_proprio,
     )
-    vla_dataset = RLDSDataset(
+    train_dataset = RLDSDataset(
         cfg.data_root_dir,
         cfg.dataset_name,
         batch_transform,
@@ -220,7 +272,7 @@ def finetune(cfg: FinetuneConfig) -> None:
         shuffle_buffer_size=cfg.shuffle_buffer_size,
         image_aug=cfg.image_aug,
     )
-    vla_dataset_val = RLDSDataset(
+    val_dataset = RLDSDataset(
         cfg.data_root_dir,
         cfg.dataset_name,
         batch_transform,
@@ -232,21 +284,21 @@ def finetune(cfg: FinetuneConfig) -> None:
 
     # [Important] Save Dataset Statistics =>> used to de-normalize actions for inference!
     if distributed_state.is_main_process:
-        save_dataset_statistics(vla_dataset.dataset_statistics, run_dir)
+        save_dataset_statistics(train_dataset.dataset_statistics, run_dir)
 
     # Create Collator and DataLoader
     collator = PaddedCollatorForActionPrediction(
         processor.tokenizer.model_max_length, processor.tokenizer.pad_token_id, padding_side="right"
     )
     dataloader = DataLoader(
-        vla_dataset,
+        train_dataset,
         batch_size=cfg.batch_size,
         sampler=None,
         collate_fn=collator,
         num_workers=0,  # Important =>> Set to 0 if using RLDS; TFDS rolls its own parallelism!
     )
     dataloader_val = DataLoader(
-        vla_dataset_val,
+        val_dataset,
         batch_size=cfg.batch_size,
         sampler=None,
         collate_fn=collator,
@@ -274,6 +326,8 @@ def finetune(cfg: FinetuneConfig) -> None:
                     attention_mask=batch["attention_mask"].to(device_id),
                     pixel_values=batch["pixel_values"].to(torch.bfloat16).to(device_id),
                     labels=batch["labels"],
+                    proprio=batch["proprio"] if cfg.use_proprio else None,
+                    proprio_projector=proprio_projector if cfg.use_proprio else None,
                 )
                 loss = output.loss
 
@@ -284,28 +338,17 @@ def finetune(cfg: FinetuneConfig) -> None:
             normalized_loss.backward()
 
             # Compute Accuracy and L1 Loss for Logging
-            action_logits = output.logits[:, vla.module.vision_backbone.featurizer.patch_embed.num_patches : -1]
-            action_preds = action_logits.argmax(dim=2)
-            action_gt = batch["labels"][:, 1:].to(action_preds.device)
-            mask = action_gt > action_tokenizer.action_token_begin_idx
-            reasoning_mask = (action_gt != IGNORE_INDEX) & torch.logical_not(mask)
+            pred_ids = output.logits[:, NUM_PATCHES : -1].argmax(dim=2)
+            gt_ids = batch["labels"][:, 1:].to(device_id)
+            action_mask = gt_ids > action_tokenizer.action_token_begin_idx
+            reasoning_mask = (gt_ids != IGNORE_INDEX) & torch.logical_not(action_mask)
 
             # Compute Accuracy
-            correct_preds = (action_preds == action_gt) & mask
-            action_accuracy = correct_preds.sum().float() / mask.sum().float()
-            
-            # Compute Reasoning Accuracy
-            correct_reasoning_preds = (action_preds == action_gt) & reasoning_mask
-            reasoning_accuracy = correct_reasoning_preds.sum().float() / reasoning_mask.sum().float()
-
-            # Compute L1 Loss on Predicted (Continuous) Actions
-            continuous_actions_pred = torch.tensor(
-                action_tokenizer.decode_token_ids_to_actions(action_preds[mask].cpu().numpy())
+            action_accuracy = compute_token_accuracy(pred_ids, gt_ids, action_mask)
+            reasoning_accuracy = compute_token_accuracy(pred_ids, gt_ids, reasoning_mask)
+            action_l1_loss = compute_actions_l1_loss(
+                action_tokenizer, pred_ids, gt_ids, action_mask
             )
-            continuous_actions_gt = torch.tensor(
-                action_tokenizer.decode_token_ids_to_actions(action_gt[mask].cpu().numpy())
-            )
-            action_l1_loss = torch.nn.functional.l1_loss(continuous_actions_pred, continuous_actions_gt)
 
             # Store recent train metrics
             recent_losses.append(loss.item())
@@ -325,68 +368,54 @@ def finetune(cfg: FinetuneConfig) -> None:
             smoothened_l1_loss = sum(recent_l1_losses) / len(recent_l1_losses)
 
             # Push Metrics to W&B (every 10 gradient steps)
+            log_step = gradient_step_idx if not cfg.resume else cfg.resume_step + gradient_step_idx
             if distributed_state.is_main_process and gradient_step_idx % 10 == 0:
                 wandb.log(
                     {
-                        "train_loss": smoothened_loss,
-                        "action_accuracy": smoothened_action_accuracy,
-                        "reasoning_accuracy": smoothened_reasoning_accuracy,
-                        "l1_loss": smoothened_l1_loss,
+                        "Train/train_loss": smoothened_loss,
+                        "Train/action_accuracy": smoothened_action_accuracy,
+                        "Train/reasoning_accuracy": smoothened_reasoning_accuracy,
+                        "Train/l1_loss": smoothened_l1_loss,
                     },
-                    step=gradient_step_idx,
+                    step=log_step,
+                )
+            
+            # [If applicable] Linearly warm up learning rate from 10% to 100% of original
+            if cfg.lr_warmup_steps > 0:
+                lr_progress = min((gradient_step_idx + 1) / cfg.lr_warmup_steps, 1.0)  # Cap at 1.0
+                current_lr = original_lr * (0.1 + 0.9 * lr_progress)
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = current_lr
+
+            if distributed_state.is_main_process and gradient_step_idx % cfg.wandb_log_freq == 0:
+                # Log the learning rate
+                # Make sure to do this AFTER any learning rate modifications (e.g., warmup/decay)
+                wandb.log(
+                    {
+                        "Train/learning rate": scheduler.get_last_lr()[0],
+                    },
+                    step=log_step,
                 )
 
             # Optimizer Step
             if (batch_idx + 1) % cfg.grad_accumulation_steps == 0:
                 optimizer.step()
+                scheduler.step()
                 optimizer.zero_grad()
                 progress.update()
 
             # Save Model Checkpoint =>> by default, only keeps the latest checkpoint, continually overwriting it!
             if gradient_step_idx > 0 and gradient_step_idx % cfg.save_steps == 0:
-                if distributed_state.is_main_process:
-                    print(f"Saving Model Checkpoint for Step {gradient_step_idx}")
-
-                    # If LoRA, we first save adapter weights, then merge into full model; otherwise, default save!
-                    save_dir = adapter_dir if cfg.use_lora else run_dir
-
-                    # Save Processor & Weights
-                    processor.save_pretrained(run_dir)
-                    vla.module.save_pretrained(save_dir)
-
-                # Wait for processor and adapter weights to be saved by main process
-                dist.barrier()
-
-                # Merge LoRA weights into model backbone for faster inference
-                #   =>> Note that merging is slow and can be done post-hoc to speed up training
-                # if cfg.use_lora:
-                #     base_vla = AutoModelForVision2Seq.from_pretrained(
-                #         cfg.vla_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True
-                #     )
-                #     merged_vla = PeftModel.from_pretrained(base_vla, adapter_dir)
-                #     merged_vla = merged_vla.merge_and_unload()
-                #     if distributed_state.is_main_process:
-                #         if cfg.save_latest_checkpoint_only:
-                #             # Overwrite latest checkpoint
-                #             merged_vla.save_pretrained(run_dir)
-
-                #             print(f"Saved Model Checkpoint for Step {gradient_step_idx} at: {run_dir}")
-                #         else:
-                #             # Prepare to save checkpoint in new directory
-                #             checkpoint_dir = Path(str(run_dir) + f"--{gradient_step_idx}_chkpt")
-                #             os.makedirs(checkpoint_dir, exist_ok=True)
-
-                #             # Save dataset statistics to new directory
-                #             save_dataset_statistics(vla_dataset.dataset_statistics, checkpoint_dir)
-
-                #             # Save processor and model weights to new directory
-                #             processor.save_pretrained(checkpoint_dir)
-                #             merged_vla.save_pretrained(checkpoint_dir)
-
-                #             print(f"Saved Model Checkpoint for Step {gradient_step_idx} at: {checkpoint_dir}")
-
-                # Block on Main Process Checkpointing
-                dist.barrier()
+                save_training_checkpoint(
+                    cfg=cfg,
+                    run_dir=run_dir,
+                    log_step=log_step,
+                    vla=vla,
+                    processor=processor,
+                    proprio_projector=proprio_projector if cfg.use_proprio else None,
+                    train_dataset=train_dataset,
+                    distributed_state=distributed_state,
+                )
 
             # Test model on validation set
             if gradient_step_idx > 0 and gradient_step_idx % cfg.validation_steps == 0:
@@ -481,10 +510,10 @@ def finetune(cfg: FinetuneConfig) -> None:
                 if distributed_state.is_main_process:
                     wandb.log(
                         {
-                            "val_loss": avg_val_loss,
-                            "val_action_accuracy": avg_val_action_accuracy,
-                            "val_reasoning_accuracy": avg_val_reasoning_accuracy,
-                            "val_l1_loss": avg_val_l1_loss,
+                            "Val/loss": avg_val_loss,
+                            "Val/action_accuracy": avg_val_action_accuracy,
+                            "Val/reasoning_accuracy": avg_val_reasoning_accuracy,
+                            "Val/l1_loss": avg_val_l1_loss,
                         },
                         step=gradient_step_idx,
                     )
@@ -557,10 +586,10 @@ def finetune(cfg: FinetuneConfig) -> None:
                     gripper_token_accuracy = correct_gripper_count_tensor.item() / total_sample_count_tensor.item() if total_sample_count_tensor.item() > 0 else 0
                     wandb.log(
                         {
-                            "action_token_accuracy": action_token_accuracy,
-                            "trans_token_accuracy": trans_token_accuracy,
-                            "rot_token_accuracy": rot_token_accuracy,
-                            "gripper_token_accuracy": gripper_token_accuracy,
+                            "Gen/action_token_accuracy": action_token_accuracy,
+                            "Gen/trans_token_accuracy": trans_token_accuracy,
+                            "Gen/rot_token_accuracy": rot_token_accuracy,
+                            "Gen/gripper_token_accuracy": gripper_token_accuracy,
                         },
                         step=gradient_step_idx,
                     )

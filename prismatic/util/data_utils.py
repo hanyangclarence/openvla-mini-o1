@@ -9,6 +9,7 @@ from typing import Callable, Dict, Sequence, Tuple
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
+import numpy as np
 
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
 IGNORE_INDEX = -100
@@ -130,12 +131,20 @@ class PaddedCollatorForActionPrediction:
             }
         else:
             raise ValueError(f"Unsupported `pixel_values` type = {type(pixel_values)}")
+        
+        # Stack proprio
+        if "proprio" in instances[0]:
+            proprio = [instance["proprio"] for instance in instances]
+            proprio = torch.Tensor(np.squeeze(np.stack(proprio)))
+        else:
+            proprio = None
 
         output = dict(
             pixel_values=pixel_values,
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=labels,
+            proprio=proprio,
         )
         if dataset_names is not None:
             output["dataset_names"] = dataset_names
