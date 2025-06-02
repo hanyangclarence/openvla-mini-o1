@@ -101,8 +101,7 @@ class FinetuneConfig:
     image_aug: bool = True                                          # Whether to train with image augmentations
     shuffle_buffer_size: int = 100_000                              # Dataloader shuffle buffer size (can reduce if OOM)
     save_latest_checkpoint_only: bool = True                        # Whether to save only one checkpoint per run and
-                                                                    #   continually overwrite the latest checkpoint
-                                                                    #   (If False, saves all checkpoints)
+    merge_lora_during_training: bool = True
     resume: bool = False                             # If True, resumes from checkpoint
     resume_step: Optional[int] = None                # (When `resume==True`) Step number that we are resuming from
 
