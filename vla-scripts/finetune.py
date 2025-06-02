@@ -210,6 +210,7 @@ def finetune(cfg: FinetuneConfig) -> None:
             cfg,
             device_id,
             {"llm_dim": vla.module.llm_dim, "proprio_dim": 8},
+            to_bf16=True,
         )
     
     # Get number of vision patches
@@ -327,7 +328,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                     attention_mask=batch["attention_mask"].to(device_id),
                     pixel_values=batch["pixel_values"].to(torch.bfloat16).to(device_id),
                     labels=batch["labels"],
-                    proprio=batch["proprio"] if cfg.use_proprio else None,
+                    proprio=batch["proprio"].to(torch.bfloat16).to(device_id) if cfg.use_proprio else None,
                     proprio_projector=proprio_projector if cfg.use_proprio else None,
                 )
                 loss = output.loss
@@ -442,7 +443,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                                 attention_mask=val_batch["attention_mask"].to(device_id),
                                 pixel_values=val_batch["pixel_values"].to(torch.bfloat16).to(device_id),
                                 labels=val_batch["labels"],
-                                proprio=batch["proprio"] if cfg.use_proprio else None,
+                                proprio=batch["proprio"].to(torch.bfloat16).to(device_id) if cfg.use_proprio else None,
                                 proprio_projector=proprio_projector if cfg.use_proprio else None,
                             )
                             val_loss = val_output.loss
@@ -542,8 +543,8 @@ def finetune(cfg: FinetuneConfig) -> None:
                         input_ids_sample = batch["input_ids"][i]
                         labels_sample = batch["labels"][i]
                         attention_mask_sample = batch["attention_mask"][i]
-                        pixel_values_sample = batch["pixel_values"][i:i + 1].to(vla.module.dtype).to(device_id)
-                        priprio_sample = batch["proprio"][i:i + 1].to(vla.module.dtype).to(device_id) if cfg.use_proprio else None
+                        pixel_values_sample = batch["pixel_values"][i:i + 1].to(torch.bfloat16).to(device_id)
+                        priprio_sample = batch["proprio"][i:i + 1].to(torch.bfloat16).to(device_id) if cfg.use_proprio else None
                         
                         # Determine prompt length
                         first_target_indices = (labels_sample != IGNORE_INDEX).nonzero(as_tuple=True)[0]
