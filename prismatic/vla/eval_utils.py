@@ -421,7 +421,7 @@ def get_vla_action(
             do_sample=False,
             proprio=proprio,
             proprio_projector=proprio_projector,
-            os_token_id=processor.tokenizer.eos_token_id,
+            eos_token_id=processor.tokenizer.eos_token_id,
             pad_token_id=processor.tokenizer.pad_token_id,
             max_new_tokens=200,
         )
