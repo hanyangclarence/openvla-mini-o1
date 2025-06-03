@@ -24,7 +24,7 @@ class GenerateConfig:
     use_proprio: bool = True,
     unnorm_key: str = None,
     center_crop: bool = True,
-    device = None
+    device: torch.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
 
 # Init models
