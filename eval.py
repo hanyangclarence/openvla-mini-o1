@@ -16,17 +16,26 @@ from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.eval_utils import get_models, get_proprio_projector, _process_pose_to_state, invert_gripper_actions, get_vla_action
 import pdb; pdb.set_trace()
 
+
 @dataclass
 class GenerateConfig:
-    pretrained_checkpoint: str = "/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
-    num_image_in_input: int = 2,
-    use_proprio = True,
-    unnorm_key = "rlbencho1",
-    center_crop = True,
-    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    pretrained_checkpoint: str = None,
+    num_image_in_input: int = 1,
+    use_proprio: bool = True,
+    unnorm_key: str = None,
+    center_crop: bool = True,
+    device = None
+
 
 # Init models
-cfg = GenerateConfig()
+cfg = GenerateConfig(
+    pretrained_checkpoint="/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
+    num_image_in_input=2,
+    use_proprio=True,
+    unnorm_key="rlbencho1",
+    center_crop=True,
+    device=torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+)
 model, processor = get_models(cfg)
 proprio_projector = get_proprio_projector(
     cfg, llm_dim=model.llm_dim, proprio_dim=8
