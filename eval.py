@@ -18,7 +18,7 @@ from prismatic.vla.eval_utils import get_models, get_proprio_projector, _process
 
 @dataclass
 class GenerateConfig:
-    pretrained_checkpoint: str = "logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
+    pretrained_checkpoint: str = "/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
     num_image_in_input: int = 2,
     use_proprio = True,
     unnorm_key = "rlbencho1",
