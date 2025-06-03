@@ -416,6 +416,7 @@ def get_vla_action(
             proprio = obs["state"]
 
         # Generate results
+        proprio = torch.tensor(proprio, dtype=torch.bfloat16).to(cfg.device)
         generated_ids = vla.generate(
             **inputs,
             do_sample=False,
