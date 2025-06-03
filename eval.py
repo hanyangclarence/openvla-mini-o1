@@ -20,7 +20,7 @@ import pdb; pdb.set_trace()
 @dataclass
 class GenerateConfig:
     pretrained_checkpoint: str = None,
-    num_image_in_input: int = 1,
+    num_images_in_input: int = 1,
     use_proprio: bool = True,
     unnorm_key: str = None,
     center_crop: bool = True,
@@ -30,7 +30,7 @@ class GenerateConfig:
 # Init models
 cfg = GenerateConfig(
     pretrained_checkpoint="/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
-    num_image_in_input=2,
+    num_images_in_input=2,
     use_proprio=True,
     unnorm_key="rlbencho1",
     center_crop=True,
