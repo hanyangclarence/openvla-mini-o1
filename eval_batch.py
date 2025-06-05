@@ -226,7 +226,7 @@ for idx, path in enumerate(all_transitions):
             f"L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}, {np.mean(transition_l1_dist_list) if transition_l1_dist_list else 0:.4f}, "
             f"{np.mean(rotation_l1_dist_list) if rotation_l1_dist_list else 0:.4f}, "
                 f"{np.mean(gripper_l1_dist_list) if gripper_l1_dist_list else 0:.4f}")
-        print(f"Output:\n{output_str}")
+        # print(f"Output:\n{output_str}")
 
     all_inputs = []
     all_jsons = []
