@@ -217,7 +217,7 @@ for idx, path in enumerate(all_transitions):
         rotation_accuracy = correct_rotation_token_count / (correct_format_count * 3)
         gripper_accuracy = correct_gripper_token_count / (correct_format_count * 1)
         transition_accuracy 
-        print(f"{idx + 1}/{len(all_transitions)}: Action Accuracy: {action_accuracy:.4f}, {transition_accuracy:.4f}, "
+        print(f"{i + idx + 1 - BATCH_SIZE}/{len(all_transitions)}: Action Accuracy: {action_accuracy:.4f}, {transition_accuracy:.4f}, "
             f"{rotation_accuracy:.4f}, {gripper_accuracy:.4f}, "
             f"Incorrect Count: {incorrect_format_count}, "
             f"L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}, {np.mean(transition_l1_dist_list) if transition_l1_dist_list else 0:.4f}, "
