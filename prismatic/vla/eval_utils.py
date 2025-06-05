@@ -422,3 +422,26 @@ def get_vla_action(
 
     # Return action chunk as list of actions
     return generated_ids
+
+
+def check_response_format(response: str):
+    score = 1.0
+    
+    if "CURRENT GOAL:" in response:
+        judgement = response.split("CURRENT GOAL:")[0].split("ACTION SUCCESS:")[-1].strip()
+        if judgement not in ["True", "False"]:
+            score = 0.0
+            judgement = None
+        if "ACTION:" not in response:
+            score = 0.0
+    elif "FAILURE REASON" in response:
+        judgement = response.split("FAILURE REASON:")[0].split("ACTION SUCCESS:")[-1].strip()
+        if judgement not in ["True", "False"]:
+            score = 0.0
+            judgement = None
+        if "ACTION:" not in response:
+            score = 0.0
+    else:
+        return None, score
+    
+    return judgement, score

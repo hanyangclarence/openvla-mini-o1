@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import random
 
 from prismatic.vla.action_tokenizer import ActionTokenizer
-from prismatic.vla.eval_utils import get_models, get_proprio_projector, _process_pose_to_state, invert_gripper_actions, prepare_inputs
+from prismatic.vla.eval_utils import get_models, get_proprio_projector, _process_pose_to_state, invert_gripper_actions, prepare_inputs, check_response_format
 
 # import pdb
 # pdb.set_trace()
@@ -58,6 +58,8 @@ l1_dist_list = []
 transition_l1_dist_list = []
 rotation_l1_dist_list = []
 gripper_l1_dist_list = []
+judgement_correct_list = []
+format_score_list = []
 BATCH_SIZE = 4
 all_transitions = glob.glob("/gpfs/yanghan/data/runs_vla_data/val/*/0/video/*")
 all_inputs = []
@@ -203,6 +205,8 @@ for idx, path in enumerate(all_transitions):
             correct_format_count += 1
         else:
             incorrect_format_count += 1
+            print(generated_ids)
+            print(output_str)
         
         if len(pred_action_ids) == len(gt_action_ids):
             pred_action = action_tokenizer.decode_token_ids_to_actions(pred_action_ids)
@@ -214,18 +218,24 @@ for idx, path in enumerate(all_transitions):
             rotation_l1_dist_list.append(rotation_l1_distance)
             gripper_l1_dist_list.append(gripper_l1_distance)
             l1_dist_list.append(action_l1_distance)
+            
+            judgement, format_score = check_response_format(output_str)
+            judgement_correct = (is_perturb and judgement == "False") or (not is_perturb and judgement == "True")
+            judgement_correct_list.append(float(judgement_correct))
+            format_score_list.append(format_score)
 
         action_accuracy = correct_action_token_count / (correct_format_count * 7)
         transition_accuracy = correct_transition_token_count / (correct_format_count * 3)
         rotation_accuracy = correct_rotation_token_count / (correct_format_count * 3)
         gripper_accuracy = correct_gripper_token_count / (correct_format_count * 1)
-        transition_accuracy 
         print(f"{i + idx + 1 - BATCH_SIZE}/{len(all_transitions)}: Action Accuracy: {action_accuracy:.4f}, {transition_accuracy:.4f}, "
             f"{rotation_accuracy:.4f}, {gripper_accuracy:.4f}, "
             f"Incorrect Count: {incorrect_format_count}, "
             f"L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}, {np.mean(transition_l1_dist_list) if transition_l1_dist_list else 0:.4f}, "
             f"{np.mean(rotation_l1_dist_list) if rotation_l1_dist_list else 0:.4f}, "
-                f"{np.mean(gripper_l1_dist_list) if gripper_l1_dist_list else 0:.4f}")
+                f"{np.mean(gripper_l1_dist_list) if gripper_l1_dist_list else 0:.4f}", end=' ')
+        print(f"Judgement Correct: {np.mean(judgement_correct_list) if judgement_correct_list else 0:.4f}, "
+            f"Format Score: {np.mean(format_score_list) if format_score_list else 0:.4f}")
         # print(f"Output:\n{output_str}")
 
     all_inputs = []
