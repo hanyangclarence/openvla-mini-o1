@@ -118,8 +118,9 @@ for idx, path in enumerate(all_transitions):
         device=cfg.device
     )
     for i in range(BATCH_SIZE):
-        padded_input_ids[i, :all_input_ids[i].shape[-1]] = all_input_ids[i]
-        padded_attention_mask[i, :all_attention_mask[i].shape[-1]] = all_attention_mask[i]
+        # left pad the input_ids and attention_mask
+        padded_input_ids[i, -all_input_ids[i].shape[-1]:] = all_input_ids[i]
+        padded_attention_mask[i, -all_attention_mask[i].shape[-1]:] = all_attention_mask[i]
     
     all_pixel_values = torch.cat([x['pixel_values'] for x in all_inputs], dim=0)
     all_proprio = torch.cat([x['proprio'] for x in all_inputs], dim=0)
@@ -225,6 +226,7 @@ for idx, path in enumerate(all_transitions):
             f"L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}, {np.mean(transition_l1_dist_list) if transition_l1_dist_list else 0:.4f}, "
             f"{np.mean(rotation_l1_dist_list) if rotation_l1_dist_list else 0:.4f}, "
                 f"{np.mean(gripper_l1_dist_list) if gripper_l1_dist_list else 0:.4f}")
+        print(f"Output:\n{output_str}")
 
     all_inputs = []
     all_jsons = []
