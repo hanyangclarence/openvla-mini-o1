@@ -30,9 +30,10 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 #   --resume_epoch 0 \
 #   --is_resume true 
 
+# warmup
 torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --vla_path "openvla/openvla-7b" \
-  --data_root_dir dataset/rl_bench_o1_dataset/2.0.0 \
+  --data_root_dir dataset/rl_bench_o1_dataset/3.0.0 \
   --dataset_name rlbencho1 \
   --run_root_dir logs \
   --lora_rank 32 \
@@ -44,7 +45,28 @@ torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
   --image_aug False \
   --wandb_project "embodied_o1" \
   --wandb_entity "mahlerrrr76" \
-  --save_steps 500 \
-  --validation_steps 200 \
-  --generate_steps 50 \
-  --debug False
+  --save_steps 20 \
+  --validation_steps 10 \
+  --generate_steps 20 \
+  --debug False \
+  --run_id_note warmup \
+  --save_latest_checkpoint_only False
+
+  # torchrun --standalone --nnodes 1 --nproc-per-node 8 vla-scripts/finetune.py \
+  # --vla_path "openvla/openvla-7b" \
+  # --data_root_dir dataset/rl_bench_o1_dataset/2.0.0 \
+  # --dataset_name rlbencho1 \
+  # --run_root_dir logs \
+  # --lora_rank 32 \
+  # --batch_size 5 \
+  # --num_images_in_input 2 \
+  # --use_proprio True \
+  # --grad_accumulation_steps 1 \
+  # --learning_rate 5e-4 \
+  # --image_aug False \
+  # --wandb_project "embodied_o1" \
+  # --wandb_entity "mahlerrrr76" \
+  # --save_steps 500 \
+  # --validation_steps 200 \
+  # --generate_steps 50 \
+  # --debug False
