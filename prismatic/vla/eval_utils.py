@@ -353,6 +353,53 @@ def normalize_proprio(proprio: np.ndarray, norm_stats: Dict[str, Any]) -> np.nda
     return normalized_proprio
 
 
+def prepare_inputs(
+    cfg,
+    vla: OpenVLAForActionPrediction,
+    processor: PrismaticProcessor,
+    obs: dict,
+    task_label: str,
+):
+    # Collect all input images
+    all_images = [obs["full_image"]]
+    if cfg.num_images_in_input > 1:
+        all_images.extend([obs[k] for k in obs.keys() if "wrist" in k])
+
+    # Process images
+    all_images = prepare_images_for_vla(all_images, cfg)
+
+    # Extract primary image and additional images
+    primary_image = all_images.pop(0)
+
+    # Build VLA prompt
+    prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
+
+    # Process primary image
+    inputs = processor(prompt, primary_image).to(cfg.device, dtype=torch.bfloat16)
+
+    # Process additional wrist images if any
+    if all_images:
+        all_wrist_inputs = [
+            processor(prompt, image_wrist).to(cfg.device, dtype=torch.bfloat16) for image_wrist in all_images
+        ]
+        # Concatenate all images
+        primary_pixel_values = inputs["pixel_values"]
+        all_wrist_pixel_values = [wrist_inputs["pixel_values"] for wrist_inputs in all_wrist_inputs]
+        inputs["pixel_values"] = torch.cat([primary_pixel_values] + all_wrist_pixel_values, dim=1)
+
+    # Process proprioception data if used
+    proprio = None
+    if cfg.use_proprio:
+        proprio = obs["state"]
+        proprio_norm_stats = vla.norm_stats[cfg.unnorm_key]["proprio"]
+        obs["state"] = normalize_proprio(proprio, proprio_norm_stats)
+        proprio = obs["state"]
+    
+    inputs["proprio"] = torch.tensor(proprio, dtype=torch.bfloat16).to(cfg.device) if proprio is not None else None
+    
+    return inputs
+
+
 def get_vla_action(
     cfg,
     vla: OpenVLAForActionPrediction,
@@ -361,66 +408,12 @@ def get_vla_action(
     task_label: str,
     proprio_projector: Optional[torch.nn.Module] = None,
 ):
-    """
-    Generate action predictions with the VLA policy.
-
-    Args:
-        cfg: Configuration object with parameters
-        vla: The VLA model
-        processor: Model processor for inputs
-        obs: Observation dictionary
-        task_label: Text description of the task
-        action_head: Optional action head for continuous actions
-        proprio_projector: Optional proprioception projector
-        noisy_action_projector: Optional noisy action projector for diffusion
-        use_film: Whether to use FiLM
-
-    Returns:
-        List[np.ndarray]: Predicted actions
-    """
     with torch.inference_mode():
+        inputs = prepare_inputs(cfg, vla, processor, obs, task_label)
 
-        # Collect all input images
-        all_images = [obs["full_image"]]
-        if cfg.num_images_in_input > 1:
-            all_images.extend([obs[k] for k in obs.keys() if "wrist" in k])
-
-        # Process images
-        all_images = prepare_images_for_vla(all_images, cfg)
-
-        # Extract primary image and additional images
-        primary_image = all_images.pop(0)
-
-        # Build VLA prompt
-        prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
-
-        # Process primary image
-        inputs = processor(prompt, primary_image).to(cfg.device, dtype=torch.bfloat16)
-
-        # Process additional wrist images if any
-        if all_images:
-            all_wrist_inputs = [
-                processor(prompt, image_wrist).to(cfg.device, dtype=torch.bfloat16) for image_wrist in all_images
-            ]
-            # Concatenate all images
-            primary_pixel_values = inputs["pixel_values"]
-            all_wrist_pixel_values = [wrist_inputs["pixel_values"] for wrist_inputs in all_wrist_inputs]
-            inputs["pixel_values"] = torch.cat([primary_pixel_values] + all_wrist_pixel_values, dim=1)
-
-        # Process proprioception data if used
-        proprio = None
-        if cfg.use_proprio:
-            proprio = obs["state"]
-            proprio_norm_stats = vla.norm_stats[cfg.unnorm_key]["proprio"]
-            obs["state"] = normalize_proprio(proprio, proprio_norm_stats)
-            proprio = obs["state"]
-
-        # Generate results
-        proprio = torch.tensor(proprio, dtype=torch.bfloat16).to(cfg.device)
         generated_ids = vla.generate(
             **inputs,
             do_sample=False,
-            proprio=proprio,
             proprio_projector=proprio_projector,
             eos_token_id=processor.tokenizer.eos_token_id,
             pad_token_id=processor.tokenizer.pad_token_id,
