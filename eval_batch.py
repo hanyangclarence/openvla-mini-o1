@@ -226,10 +226,16 @@ for idx, path in enumerate(all_transitions):
             judgement_correct_list.append(float(judgement_correct))
             format_score_list.append(format_score)
 
-        action_accuracy = correct_action_token_count / (correct_format_count * 7)
-        transition_accuracy = correct_transition_token_count / (correct_format_count * 3)
-        rotation_accuracy = correct_rotation_token_count / (correct_format_count * 3)
-        gripper_accuracy = correct_gripper_token_count / (correct_format_count * 1)
+        if correct_format_count != 0:
+            action_accuracy = correct_action_token_count / (correct_format_count * 7)
+            transition_accuracy = correct_transition_token_count / (correct_format_count * 3)
+            rotation_accuracy = correct_rotation_token_count / (correct_format_count * 3)
+            gripper_accuracy = correct_gripper_token_count / (correct_format_count * 1)
+        else:
+            action_accuracy = 0
+            transition_accuracy = 0
+            rotation_accuracy = 0
+            gripper_accuracy = 0
         print(f"{i + idx + 1 - input_batch_size}/{len(all_transitions)}: Action Accuracy: {action_accuracy:.4f}, {transition_accuracy:.4f}, "
             f"{rotation_accuracy:.4f}, {gripper_accuracy:.4f}, "
             f"Incorrect Count: {incorrect_format_count}, "
