@@ -145,11 +145,11 @@ for idx, path in enumerate(all_transitions):
             skip_special_tokens=False
         )
         
-        if "expert" in path:
+        is_perturb = "correct_pose" in json_data
+        if not is_perturb:
             curr_pose = _process_pose_to_state(json_data['prev_pose'])
             next_pose = _process_pose_to_state(json_data['current_pose'])
         else:
-            assert "perturb" in path
             curr_pose = _process_pose_to_state(json_data['current_pose'])
             next_pose = _process_pose_to_state(json_data['correct_pose'])
         
