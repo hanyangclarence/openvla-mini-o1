@@ -62,7 +62,7 @@ BATCH_SIZE = 4
 all_transitions = glob.glob("/gpfs/yanghan/data/runs_vla_data/val/*/0/video/*")
 all_inputs = []
 all_jsons = []
-random.shuffle(all_transitions)
+# random.shuffle(all_transitions)
 for idx, path in enumerate(all_transitions):
     if "expert" in path:
         obs_path = f"{path}/front_rgb/begin.png"
