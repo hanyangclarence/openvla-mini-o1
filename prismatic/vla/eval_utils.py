@@ -434,7 +434,7 @@ def check_response_format(response: str):
             judgement = None
         if "ACTION:" not in response:
             score = 0.0
-    elif "FAILURE REASON" in response:
+    elif "FAILURE REASON:" in response:
         judgement = response.split("FAILURE REASON:")[0].split("ACTION SUCCESS:")[-1].strip()
         if judgement not in ["True", "False"]:
             score = 0.0
@@ -442,6 +442,6 @@ def check_response_format(response: str):
         if "ACTION:" not in response:
             score = 0.0
     else:
-        return None, score
+        return None, 0.0
     
     return judgement, score
