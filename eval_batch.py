@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.eval_utils import get_models, get_proprio_projector, _process_pose_to_state, invert_gripper_actions, prepare_inputs
 
+import pdb
+pdb.set_trace()
 
 @dataclass
 class GenerateConfig:
