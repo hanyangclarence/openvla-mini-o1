@@ -76,6 +76,7 @@ for idx, path in enumerate(all_transitions):
         continue
     json_path = f"{path}/info.json"
     if not os.path.exists(obs_path) or not os.path.exists(json_path):
+        print(f"Skipping {path}")
         continue
     
     json_data = json.load(open(json_path, 'r'))
@@ -101,25 +102,26 @@ for idx, path in enumerate(all_transitions):
     )
     all_jsons.append(json_data)
     
-    if len(all_inputs) < BATCH_SIZE:
+    if idx != len(all_transitions) - 1 and (idx + 1) % BATCH_SIZE != 0:
         continue
     
     # collate inputs
     all_input_ids = [x['input_ids'] for x in all_inputs]
     all_attention_mask = [x['attention_mask'] for x in all_inputs]
     max_input_length = max(x.shape[-1] for x in all_input_ids)
+    input_batch_size = len(all_input_ids)
     padded_input_ids = torch.full(
-        (BATCH_SIZE, max_input_length),
+        (input_batch_size, max_input_length),
         fill_value=processor.tokenizer.pad_token_id,
         dtype=torch.long,
         device=cfg.device
     )
     padded_attention_mask = torch.zeros(
-        (BATCH_SIZE, max_input_length),
+        (input_batch_size, max_input_length),
         dtype=torch.long,
         device=cfg.device
     )
-    for i in range(BATCH_SIZE):
+    for i in range(input_batch_size):
         # left pad the input_ids and attention_mask
         padded_input_ids[i, -all_input_ids[i].shape[-1]:] = all_input_ids[i]
         padded_attention_mask[i, -all_attention_mask[i].shape[-1]:] = all_attention_mask[i]
@@ -139,7 +141,7 @@ for idx, path in enumerate(all_transitions):
         max_new_tokens=200,
     )
     
-    for i in range(BATCH_SIZE):
+    for i in range(input_batch_size):
         json_data = all_jsons[i]
         generated_ids = all_generated_ids[i]
     
@@ -228,7 +230,7 @@ for idx, path in enumerate(all_transitions):
         transition_accuracy = correct_transition_token_count / (correct_format_count * 3)
         rotation_accuracy = correct_rotation_token_count / (correct_format_count * 3)
         gripper_accuracy = correct_gripper_token_count / (correct_format_count * 1)
-        print(f"{i + idx + 1 - BATCH_SIZE}/{len(all_transitions)}: Action Accuracy: {action_accuracy:.4f}, {transition_accuracy:.4f}, "
+        print(f"{i + idx + 1 - input_batch_size}/{len(all_transitions)}: Action Accuracy: {action_accuracy:.4f}, {transition_accuracy:.4f}, "
             f"{rotation_accuracy:.4f}, {gripper_accuracy:.4f}, "
             f"Incorrect Count: {incorrect_format_count}, "
             f"L1 Distance: {np.mean(l1_dist_list) if l1_dist_list else 0:.4f}, {np.mean(transition_l1_dist_list) if transition_l1_dist_list else 0:.4f}, "
