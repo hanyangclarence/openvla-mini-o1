@@ -11,6 +11,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_graphics.geometry.transformation as tfgt
 from dataclasses import dataclass
+import random
 
 from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.eval_utils import get_models, get_proprio_projector, _process_pose_to_state, invert_gripper_actions, prepare_inputs
@@ -61,6 +62,7 @@ BATCH_SIZE = 4
 all_transitions = glob.glob("/gpfs/yanghan/data/runs_vla_data/val/*/0/video/*")
 all_inputs = []
 all_jsons = []
+random.shuffle(all_transitions)
 for idx, path in enumerate(all_transitions):
     if "expert" in path:
         obs_path = f"{path}/front_rgb/begin.png"
@@ -138,7 +140,7 @@ for idx, path in enumerate(all_transitions):
         json_data = all_jsons[i]
         generated_ids = all_generated_ids[i]
     
-        pred_action_ids = generated_ids[generated_ids > action_tokenizer.action_token_begin_idx].cpu().numpy()
+        pred_action_ids = generated_ids[(generated_ids > action_tokenizer.action_token_begin_idx) & (generated_ids != processor.tokenizer.pad_token_id)].cpu().numpy()
         
         output_str = processor.tokenizer.decode(
             generated_ids.cpu().numpy().tolist(),
