@@ -113,7 +113,7 @@ def get_models(cfg):
     AutoProcessor.register(OpenVLAConfig, PrismaticProcessor)
     AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
     
-    processor = AutoProcessor.from_pretrained(cfg.pretrained_checkpoint, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained("openvla/openvla-7b", trust_remote_code=True)
     vla = OpenVLAForActionPrediction.from_pretrained(
         cfg.pretrained_checkpoint,
         attn_implementation="flash_attention_2",
