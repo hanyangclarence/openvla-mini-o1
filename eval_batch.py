@@ -31,7 +31,8 @@ class GenerateConfig:
 
 # Init models
 cfg = GenerateConfig(
-    pretrained_checkpoint="/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
+    # pretrained_checkpoint="/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
+    pretrained_checkpoint="/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--warmup--160_chkpt",
     num_images_in_input=2,
     use_proprio=True,
     unnorm_key="rlbencho1",
@@ -60,7 +61,7 @@ rotation_l1_dist_list = []
 gripper_l1_dist_list = []
 judgement_correct_list = []
 format_score_list = []
-BATCH_SIZE = 10
+BATCH_SIZE = 1
 all_transitions = glob.glob("/gpfs/yanghan/data/runs_vla_data/val/*/0/video/*")
 all_inputs = []
 all_jsons = []
