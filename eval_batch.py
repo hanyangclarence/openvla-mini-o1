@@ -33,7 +33,7 @@ class GenerateConfig:
 cfg = GenerateConfig(
     # pretrained_checkpoint="/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--image_aug--2000_chkpt",
     # pretrained_checkpoint="/gpfs/yanghan/openvla-mini-o1/logs/openvla-7b+rlbencho1+b5+lr-0.0005+lora-r32+dropout-0.0--warmup--160_chkpt",
-    pretrained_checkpoint="../VLM-R1/src/open-r1-multimodal/runs/openvla-rl-no-format/checkpoint-100/",
+    pretrained_checkpoint="/gpfs/yanghan/VLM-R1/src/open-r1-multimodal/runs/openvla-rl-debug/checkpoint-2",
     num_images_in_input=2,
     use_proprio=True,
     unnorm_key="rlbencho1",
